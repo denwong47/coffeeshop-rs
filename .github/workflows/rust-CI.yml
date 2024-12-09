@@ -1,0 +1,54 @@
+name: Rust Fmt and Lint
+
+on:
+  push:
+    branches: [ "main", "development" ]
+    paths:
+    - 'svg/**'
+    - 'src/**'
+    - 'tests/**'
+    - 'Cargo.toml'
+    - 'Cargo.lock'
+    - 'build.rs'
+    - '.github/workflows/rust-CI.yml'
+  pull_request:
+    branches: [ "main", "development" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  PROTOC_VERSION: 3.23.4
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      name: Clone repository recursively
+      with:
+        fetch-depth: 1
+        submodules: true
+    - uses: hecrj/setup-rust-action@v2
+    - name: Install protoc
+      uses: taiki-e/install-action@v2
+      with:
+        tool: protoc@${{ env.PROTOC_VERSION }}
+    - uses: actions/cache@v4
+      name: Cache Cargo build target
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Build
+      run: cargo build --verbose
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+    - name: Check clippy
+      run: cargo clippy --all-targets --all-features --workspace -- -D warnings
+    - name: Run tests
+      run: cargo test --verbose --workspace
