@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+package multicast.proto;
+
+message MulticastMessage {
+    enum Kind {
+        ANNOUNCE = 0;
+        TICKET = 1;
+    }
+
+    enum Status {
+        ABORTED = 0;
+        SUCCESS = 1;
+        ERROR = 2;
+    }
+
+    string task = 99;
+    string ticket = 1;
+    Kind kind = 2;
+    google.protobuf.Timestamp timestamp = 3;
+    Status status = 4;
+}

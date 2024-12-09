@@ -1,0 +1,17 @@
+/target
+
+/.idea
+
+/.env
+
+**/*.tfvars
+**/.terraform
+**/.*.hcl
+
+**/__pycache__
+**/*.pyc
+**/.python-version
+
+**/.vscode
+
+**/*.log

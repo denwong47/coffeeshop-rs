@@ -1,0 +1,4 @@
+bucket  = "denwong-infrastructure-tf-state"
+key     = "denwong-infrastructure/terraform.tfstate"
+region  = "eu-west-2"
+profile = "github-ci"

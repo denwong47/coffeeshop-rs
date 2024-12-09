@@ -1,0 +1,59 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+    -   id: check-added-large-files
+        args: ['--maxkb=10240']
+        exclude: "^data/"
+    -   id: check-ast
+    -   id: check-builtin-literals
+    -   id: check-case-conflict
+    -   id: check-executables-have-shebangs
+    -   id: check-json
+    -   id: check-merge-conflict
+    -   id: check-symlinks
+    -   id: check-toml
+    -   id: check-vcs-permalinks
+    -   id: check-xml
+    -   id: check-yaml
+    -   id: debug-statements
+    -   id: destroyed-symlinks
+    -   id: end-of-file-fixer
+    -   id: fix-byte-order-marker
+    -   id: fix-encoding-pragma
+    -   id: requirements-txt-fixer
+    -   id: trailing-whitespace
+- repo: https://github.com/tofuutils/pre-commit-opentofu
+  rev: v2.1.0
+  hooks:
+  - id: tofu_fmt
+  # - id: tofu_docs
+  # - id: tofu_tflint
+  #   exclude: ^modules/
+  #   args:
+  #   - --args=--call-module-type=all
+  - id: tofu_validate
+    exclude: ^modules/
+-   repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo-fmt
+        entry: bash -c 'cargo fmt --all'
+        language: system
+        fail_fast: true
+      - id: cargo-clippy
+        name: cargo-clippy
+        entry: bash -c 'cargo clippy --fix --allow-staged --all-targets --all-features -- -D warnings'
+        language: system
+      # - id: cargo-test
+      #   name: cargo-test
+      #   entry: bash -c 'source .env && cargo test --all --features=debug,sqs_strict,test_on_ci --release -- --nocapture'
+      #   language: system
+- repo: https://github.com/rhysd/actionlint
+  rev: v1.7.1
+  hooks:
+  - id: actionlint-docker
+- repo: https://github.com/crate-ci/typos
+  rev: typos-dict-v0.11.37
+  hooks:
+  - id: typos
