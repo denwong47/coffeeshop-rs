@@ -9,3 +9,6 @@ pub use proto::MulticastMessage;
 
 mod waiter;
 pub use waiter::*;
+
+pub mod message;
+pub use message::Ticket;

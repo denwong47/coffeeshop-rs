@@ -25,3 +25,9 @@ sort of stuck with the team and we started referring the workers as "baristas" e
 communication a lot.
 
 So we thought, why not immortalize this analogy in the project name? 🤷‍♂️
+
+## Is a SOAP version available?
+
+Not yet, but the only component that would need to change is the Waiter, which can possibly
+be have a feature-flag to switch between REST and SOAP. The rest of the components should be
+agnostic to the protocol.

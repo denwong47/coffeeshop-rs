@@ -148,7 +148,7 @@ impl Config {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     macro_rules! create_test {
