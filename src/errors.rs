@@ -17,6 +17,12 @@ pub enum CoffeeShopError {
     #[error("HTTP Host failed: {0}")]
     AxumError(axum::Error),
 
+    #[error("Could not serialize the payload: {0}")]
+    ResultBinaryConversionError(#[from] Box<bincode::ErrorKind>),
+
+    #[error("Could not compress the payload: {0}")]
+    IOError(#[from] std::io::Error),
+
     #[error("Timed out awaiting results after {0:?} seconds")]
     RetrieveTimeout(std::time::Duration),
 }
