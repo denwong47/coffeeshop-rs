@@ -36,7 +36,7 @@ repos:
         language: system
       - id: cargo-test
         name: cargo-test
-        entry: bash -c 'cargo test --all'
+        entry: bash -c 'cargo test --all --release'
         language: system
 - repo: https://github.com/rhysd/actionlint
   rev: v1.7.1

@@ -4,10 +4,16 @@
 //! Currently, the chosen method is to use [`bincode`] for serialization and [`brotli`] for
 //! compression.
 //!
-
-use std::io::{BufWriter, Write};
-
 use bincode::Options;
+use gzp::{
+    deflate::Mgzip,
+    par::{compress::ParCompress, decompress::ParDecompress},
+    ZWriter,
+};
+use std::io::Write;
+use tempfile::TempDir;
+
+use super::buffer;
 
 use crate::CoffeeShopError;
 
@@ -28,15 +34,20 @@ pub fn bincode_options_builder() -> impl bincode::config::Options {
 }
 
 /// Serialize a struct into a binary payload.
-pub fn serialize<O: serde::Serialize>(data: &O) -> Result<Vec<u8>, CoffeeShopError> {
-    let mut output = Vec::with_capacity(BUFFER_SIZE * 16);
+pub async fn serialize<'d, O: serde::Serialize>(
+    data: &O,
+    temp_dir: &'d TempDir,
+) -> Result<buffer::BufferOnDisk<'d, buffer::Read>, CoffeeShopError> {
+    // Create a new file buffer to store the compressed data.
+    let mut buffer = buffer::BufferOnDisk::new(temp_dir, Some("serialize-gzp-")).await?;
 
     {
-        let writer = BufWriter::with_capacity(BUFFER_SIZE, &mut output);
-
-        // Wrap the writer in a brotli compressor.
-        let mut cwriter =
-            brotli::CompressorWriter::new(writer, BUFFER_SIZE, COMPRESSION_LEVEL, WINDOW_SIZE);
+        // ParCompress requires the Writer to be 'static, and it provides no access
+        // to the underlying writer once built. So we have to use a NamedTempFile to
+        // store the compressed data on disk, then read it back into memory.
+        let mut cwriter = ParCompress::<Mgzip>::builder()
+            .compression_level(gzp::Compression::new(6))
+            .from_writer(buffer.writer()?);
 
         let bincode_options = bincode_options_builder();
 
@@ -46,22 +57,26 @@ pub fn serialize<O: serde::Serialize>(data: &O) -> Result<Vec<u8>, CoffeeShopErr
             .map_err(CoffeeShopError::ResultBinaryConversionError)?;
 
         // Flush the buffer.
-        cwriter.flush().map_err(CoffeeShopError::IOError)?;
+        cwriter.flush().map_err(CoffeeShopError::from_io_error)?;
 
-        Ok::<_, CoffeeShopError>(())
-    }?;
+        // Flush the buffer.
+        cwriter
+            .finish()
+            .map_err(CoffeeShopError::ResultBinaryCompressionError)?;
+    }
 
-    Ok(output)
+    buffer.finish().await
 }
 
 /// Deserialize a binary payload into a struct.
-pub fn deserialize<O: serde::de::DeserializeOwned>(data: &[u8]) -> Result<O, CoffeeShopError> {
-    let mut reader = brotli::Decompressor::new(data, BUFFER_SIZE);
+pub fn deserialize<O: serde::de::DeserializeOwned>(data: Vec<u8>) -> Result<O, CoffeeShopError> {
+    let reader = std::io::Cursor::new(data);
+    let mut creader = ParDecompress::<Mgzip>::builder().from_reader(reader);
 
     let bincode_options = bincode_options_builder();
 
     let result = bincode_options
-        .deserialize_from(&mut reader)
+        .deserialize_from(&mut creader)
         .map_err(CoffeeShopError::ResultBinaryConversionError)?;
 
     Ok(result)
@@ -72,8 +87,6 @@ mod tests {
     use super::*;
 
     mod primitives {
-        use std::u32;
-
         use super::*;
 
         macro_rules! create_test {
@@ -86,17 +99,20 @@ mod tests {
                     expected_len=$expected_len:expr
                 )
             ) => {
-                #[test]
-                fn $name() {
+                #[tokio::test]
+                async fn $name() {
                     let data = $input;
-                    let result: Vec<u8> = serialize(&data).expect("Failed to serialize data");
+                    let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+                    let temp_file: buffer::BufferOnDisk<'_, _> = serialize(&data, &temp_dir).await.expect("Failed to serialize data");
+
+                    let result = temp_file.read_to_end().await.expect("Failed to read serialized data");
 
                     println!("Testing serialization: name={:?}, expected_head={:?}, expected_tail={:?}, expected_len={:?}", stringify!($name), &result[..5], &result[(result.len()-5)..], result.len());
                     assert_eq!(&result[..5], $expected_head);
                     assert_eq!(&result[(result.len()-5)..], $expected_tail);
                     assert_eq!(result.len(), $expected_len);
 
-                    let deserialized = deserialize::<$output_type>(&result).expect("Failed to deserialize data");
+                    let deserialized = deserialize::<$output_type>(result).expect("Failed to deserialize data");
                     assert_eq!(data, deserialized);
                 }
             };
@@ -105,25 +121,19 @@ mod tests {
         create_test!(serialize_vec_u32(
             input = vec![1_u32, 2, 3, 4, 5],
             output_type = Vec<u32>,
-            expected_head = [139, 2, 128, 5, 1],
-            expected_tail = [2, 3, 4, 5, 3],
-            expected_len = 10
+            expected_head=[31, 139, 8, 4, 0], expected_tail=[0, 0, 0, 0, 0], expected_len=72
         ));
 
         create_test!(serialize_vec_string(
             input = vec!["hello".to_string(), "world".to_string()],
             output_type = Vec<String>,
-            expected_head = [11, 6, 128, 2, 5],
-            expected_tail = [111, 114, 108, 100, 3],
-            expected_len = 17
+            expected_head=[31, 139, 8, 4, 0], expected_tail=[0, 0, 0, 0, 0], expected_len=79
         ));
 
         create_test!(serialize_long_vec_u32(
             input = vec![u32::MAX; 65536],
             output_type = Vec<u32>,
-            expected_head = [43, 2, 128, 130, 255],
-            expected_tail = [130, 46, 48, 0, 3],
-            expected_len = 25
+            expected_head=[31, 139, 8, 4, 0], expected_tail=[0, 0, 0, 0, 0], expected_len=653
         ));
     }
 
@@ -138,22 +148,25 @@ mod tests {
                     $size:expr
                 )
             ) => {
-                #[test]
-                fn $name() {
+                #[tokio::test]
+                async fn $name() {
                     // get some random data:
                     let mut data: Vec<$dtype> = vec![<$dtype as Default>::default(); $size];
                     rand::thread_rng().fill(data.as_mut_slice());
 
-                    let serialized: Vec<u8> = serialize(&data).expect("Failed to serialize data");
+                    let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+                    let temp_file: buffer::BufferOnDisk<'_, _> = serialize(&data, &temp_dir).await.expect("Failed to serialize data");
+
+                    let serialized = temp_file.read_to_end().await.expect("Failed to read serialized data");
                     let serialized_json = serde_json::to_string(&data).expect("Failed to serialize data to JSON");
                     let serialized_binary = bincode::serialize(&data).expect("Failed to serialize data to binary");
                     assert_ne!(serialized.len(), 0);
-                    // JSON is always larger than binary; if we can't even make this assertion, something is very wrong.
-                    assert!(serialized_json.len() > serialized.len());
+                    // JSON is always larger than binary unless the data is very small.
+                    assert!(serialized_json.len().max(200) >= serialized.len(), "JSON size={}, compressed size={}", serialized_json.len(), serialized.len());
                     // Test if compression had worked.
-                    assert!(serialized_binary.len() > serialized.len());
+                    assert!(serialized_binary.len().max(200) >= serialized.len(), "Binary size={}, compressed size={}", serialized_binary.len(), serialized.len());
                     println!("Testing random serialization: name={:?}, len={}, serialied_size={}, final_size={}, json_size={}", stringify!($name), data.len(), serialized_binary.len(), serialized.len(), serialized_json.len());
-                    let deserialized = deserialize::<Vec<$dtype>>(&serialized).expect("Failed to deserialize data");
+                    let deserialized = deserialize::<Vec<$dtype>>(serialized).expect("Failed to deserialize data");
 
                     assert_eq!(data, deserialized);
                 }
@@ -164,7 +177,7 @@ mod tests {
         create_test!(serialize_f64_2(f64, 2));
         create_test!(serialize_f64_8(f64, 8));
         create_test!(serialize_f64_1k(f64, 1024));
-        // create_test!(serialize_f64_1m(f64, 1024 * 1024));
-        // create_test!(serialize_f64_10m(f64, 10 * 1024 * 1024));
+        create_test!(serialize_f64_1m(f64, 1024 * 1024));
+        create_test!(serialize_f64_10m(f64, 10 * 1024 * 1024));
     }
 }

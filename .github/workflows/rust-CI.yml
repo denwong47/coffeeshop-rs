@@ -51,4 +51,5 @@ jobs:
     - name: Check clippy
       run: cargo clippy --all-targets --all-features --workspace -- -D warnings
     - name: Run tests
-      run: cargo test --verbose --workspace
+      # Run tests in release mode as compression tests are slow in debug mode
+      run: cargo test --release --verbose --workspace

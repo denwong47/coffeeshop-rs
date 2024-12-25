@@ -20,14 +20,28 @@ pub enum CoffeeShopError {
     #[error("Could not serialize the payload: {0}")]
     ResultBinaryConversionError(#[from] Box<bincode::ErrorKind>),
 
-    #[error("Could not compress the payload: {0}")]
-    IOError(#[from] std::io::Error),
+    #[error("Could not compress/decompress the payload: {0}")]
+    ResultBinaryCompressionError(#[from] gzp::GzpError),
+
+    #[error("Temporary file access failure at {path}: {reason}")]
+    TempFileAccessFailure {
+        path: std::path::PathBuf,
+        reason: String,
+    },
+
+    #[error("An IOError::{0} had occurred: {1}")]
+    IOError(std::io::ErrorKind, std::io::Error),
 
     #[error("Timed out awaiting results after {0:?} seconds")]
     RetrieveTimeout(std::time::Duration),
 }
 
 impl CoffeeShopError {
+    /// Convenient method to create a [`CoffeeShopError::IOError`] variant from [`std::io::Error`].
+    pub fn from_io_error(error: std::io::Error) -> Self {
+        CoffeeShopError::IOError(error.kind(), error)
+    }
+
     /// This method returns the appropriate HTTP status code for the error.
     ///
     /// Some of these errors will not be encountered as a result of a request,
