@@ -29,17 +29,30 @@ pub enum CoffeeShopError {
         reason: String,
     },
 
+    #[error("The path for a temporary file is non-uniquely generated; this is improbable unless cleanup is not working. Please verify.")]
+    NonUniqueTemporaryFile,
+
     #[error("An IOError::{0} had occurred: {1}")]
     IOError(std::io::ErrorKind, std::io::Error),
 
     #[error("Timed out awaiting results after {0:?} seconds")]
     RetrieveTimeout(std::time::Duration),
+
+    #[error("AWS Configuration incomplete: {0}")]
+    AWSConfigIncomplete(String),
+
+    #[error("AWS SDK Error: {0}")]
+    AWSSdkError(String),
 }
 
 impl CoffeeShopError {
     /// Convenient method to create a [`CoffeeShopError::IOError`] variant from [`std::io::Error`].
     pub fn from_io_error(error: std::io::Error) -> Self {
-        CoffeeShopError::IOError(error.kind(), error)
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            CoffeeShopError::NonUniqueTemporaryFile
+        } else {
+            CoffeeShopError::IOError(error.kind(), error)
+        }
     }
 
     /// This method returns the appropriate HTTP status code for the error.

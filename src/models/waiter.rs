@@ -3,6 +3,8 @@
 //! For synchronous requests, the waiter will also asynchronously await a [`Notify`](tokio::sync::Notify)
 //! event from the multicast channel and report back to the client when the request had been processed.
 
+#![allow(unused_variables)]
+
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,

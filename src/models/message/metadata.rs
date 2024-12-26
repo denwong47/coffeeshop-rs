@@ -31,10 +31,13 @@ impl ResponseMetadata {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "debug")]
+    const LOG_TARGET: &str = "coffeeshop::models::message::metadata::tests";
+
     #[test]
     fn test_get_hostname() {
         let hostname = get_hostname();
-        println!("Found hostname: {:?}", hostname);
+        crate::debug!(target: LOG_TARGET, "Found hostname: {:?}", hostname);
         assert_ne!(hostname.len(), 0);
     }
 }

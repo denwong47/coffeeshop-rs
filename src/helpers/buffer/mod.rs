@@ -5,9 +5,6 @@ use tempfile::TempDir;
 use tokio::{fs::File as TokioFile, io::AsyncReadExt};
 use uuid::Uuid;
 
-mod write_wrapper;
-pub use write_wrapper::WriteWrapper;
-
 use super::serde::BUFFER_SIZE;
 
 /// The default prefix for the buffer if not specified.
@@ -16,17 +13,29 @@ const DEFAULT_PREFIX: &str = "disk-buffer-";
 /// The default extension for the buffer if not specified.
 const DEFAULT_EXTENSION: &str = "bin";
 
+/// The default logger target for the buffer.
+#[cfg(feature = "debug")]
+const LOG_TARGET: &str = "coffeeshop::helpers::buffer";
+
 /// A file handler that can be either a standard file or a Tokio file.
 ///
 /// In our case, the write handler will be a blocking file handler, and the read
 /// handler will be an async file handler.
 pub enum FileHandler {
+    /// Unused. [`Write`](StdWrite) handlers are not stored in the buffer,
+    /// they are owned by the called of [`BufferOnDisk::writer`].
     Write(StdFile),
+
+    /// The read handler for the buffer.
+    ///
+    /// Upon instantiating a [`BufferOnDisk`] in [`Read`] mode, a single
+    /// read handler will be created and stored in the buffer.
     Read(TokioFile),
 }
 
 /// A trait to define the state of the buffer.
 pub trait BufferStateType {
+    /// Get the state as a string.
     fn as_str(&self) -> &'static str;
 }
 
@@ -104,6 +113,9 @@ where
             .create_new(true)
             .write(true)
             .open(self.path())
+            .inspect(
+                |file| crate::trace!(target: LOG_TARGET, "Touched file at {:?} successfully.", file),
+            )
             .and(Ok(()))
             .map_err(CoffeeShopError::from_io_error)
     }
@@ -120,8 +132,12 @@ where
     fn file_write(&self) -> Result<StdFile, CoffeeShopError> {
         std::fs::OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .open(self.path())
+            .inspect(
+                |file| crate::trace!(target: LOG_TARGET, "Opened file at {:?} for writing.", file),
+            )
             .map_err(CoffeeShopError::from_io_error)
     }
 
@@ -146,7 +162,8 @@ where
                 // If the file is in the read state already, we assume that all work
                 // has been done and we can safely delete the file.
                 std::fs::remove_file(self.path()).unwrap_or_else(|err| {
-                    eprintln!(
+                    crate::debug!(
+                        target: LOG_TARGET,
                         "Could not remove file at {:?}, the temporary file will remain: {:?}",
                         self.path(),
                         err
@@ -181,7 +198,7 @@ impl<'d> BufferOnDisk<'d, Write> {
             _phantom: std::marker::PhantomData,
         };
 
-        eprintln!("Buffer created at {:?}", instance.path());
+        crate::debug!(target: LOG_TARGET, "Buffer created at {:?}", instance.path());
 
         instance.file_touch().map(|_| instance)
     }
@@ -259,27 +276,30 @@ impl<'d> BufferOnDisk<'d, Read> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use tempfile::tempdir;
 
     use tokio::io::AsyncReadExt;
+
+    #[cfg(feature = "debug")]
+    const LOG_TARGET: &str = "coffeeshop::helpers::buffer::tests";
 
     #[tokio::test]
     async fn test_buffer_on_disk() {
         const TEST_STRING: &[u8] = b"Hello, world!";
 
         let dir = tempdir().unwrap();
-        eprintln!("Temporary directory created at {:?}", dir.path());
+        crate::debug!(target: LOG_TARGET, "Temporary directory created at {:?}", dir.path());
         let mut buffer = BufferOnDisk::<Write>::new(&dir, None).await.unwrap();
-        eprintln!("Buffer created at {:?}", buffer.path());
+        crate::debug!(target: LOG_TARGET, "Buffer created at {:?}", buffer.path());
         let path = buffer.path();
         assert!(path.exists());
-        eprintln!("Buffer path exists.");
+        crate::debug!(target: LOG_TARGET, "Buffer path exists.");
         buffer
             .writer()
             .expect("Cannot create writer.")
-            .write(TEST_STRING)
+            .write_all(TEST_STRING)
             .unwrap();
 
         let mut buffer = buffer.finish().await.unwrap();
@@ -291,13 +311,13 @@ mod test {
 
             reader.read_to_end(&mut actual).await.unwrap();
 
-            eprintln!("Read data: {:?}", String::from_utf8_lossy(&actual));
+            crate::debug!(target: LOG_TARGET, "Read data: {:?}", String::from_utf8_lossy(&actual));
 
             assert_eq!(actual, TEST_STRING);
         }
 
         drop(buffer);
-        eprintln!("Buffer dropped. File still exists: {:?}", path.exists());
+        crate::debug!(target: LOG_TARGET, "Buffer dropped. File still exists: {:?}", path.exists());
 
         assert!(!path.exists());
     }

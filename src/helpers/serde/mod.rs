@@ -17,6 +17,9 @@ use super::buffer;
 
 use crate::CoffeeShopError;
 
+#[cfg(feature = "debug")]
+const LOG_TARGET: &str = "coffeeshop::helpers::serde";
+
 /// The compression level to use when compressing the payload.
 pub const COMPRESSION_LEVEL: u32 = 11;
 
@@ -42,16 +45,26 @@ pub async fn serialize<'d, O: serde::Serialize>(
     let mut buffer = buffer::BufferOnDisk::new(temp_dir, Some("serialize-gzp-")).await?;
 
     {
+        // Use all available CPU cores for compression. `num_cpus` will return the number
+        // of threads available on the system, i.e. we do not need to multiply this by 2
+        // for Hyper-Threading.
+        let thread_count = num_cpus::get();
+
         // ParCompress requires the Writer to be 'static, and it provides no access
         // to the underlying writer once built. So we have to use a NamedTempFile to
         // store the compressed data on disk, then read it back into memory.
         let mut cwriter = ParCompress::<Mgzip>::builder()
             .compression_level(gzp::Compression::new(6))
+            .num_threads(thread_count)
+            .map_err(CoffeeShopError::ResultBinaryCompressionError)?
             .from_writer(buffer.writer()?);
 
         let bincode_options = bincode_options_builder();
 
         // Serialize the data into the buffer.
+        #[cfg(feature = "debug")]
+        let start = tokio::time::Instant::now();
+
         bincode_options
             .serialize_into(&mut cwriter, data)
             .map_err(CoffeeShopError::ResultBinaryConversionError)?;
@@ -63,6 +76,14 @@ pub async fn serialize<'d, O: serde::Serialize>(
         cwriter
             .finish()
             .map_err(CoffeeShopError::ResultBinaryCompressionError)?;
+
+        #[cfg(feature = "debug")]
+        crate::debug!(
+            target: LOG_TARGET,
+            "Serialization completed in {:?} using {} threads.",
+            start.elapsed(),
+            thread_count,
+        );
     }
 
     buffer.finish().await
@@ -86,6 +107,9 @@ pub fn deserialize<O: serde::de::DeserializeOwned>(data: Vec<u8>) -> Result<O, C
 mod tests {
     use super::*;
 
+    #[cfg(feature = "debug")]
+    const LOG_TARGET: &str = "coffeeshop::helpers::serde::tests";
+
     mod primitives {
         use super::*;
 
@@ -107,7 +131,7 @@ mod tests {
 
                     let result = temp_file.read_to_end().await.expect("Failed to read serialized data");
 
-                    println!("Testing serialization: name={:?}, expected_head={:?}, expected_tail={:?}, expected_len={:?}", stringify!($name), &result[..5], &result[(result.len()-5)..], result.len());
+                    crate::debug!(target: LOG_TARGET, "Testing serialization: name={:?}, expected_head={:?}, expected_tail={:?}, expected_len={:?}", stringify!($name), &result[..5], &result[(result.len()-5)..], result.len());
                     assert_eq!(&result[..5], $expected_head);
                     assert_eq!(&result[(result.len()-5)..], $expected_tail);
                     assert_eq!(result.len(), $expected_len);
@@ -165,7 +189,7 @@ mod tests {
                     assert!(serialized_json.len().max(200) >= serialized.len(), "JSON size={}, compressed size={}", serialized_json.len(), serialized.len());
                     // Test if compression had worked.
                     assert!(serialized_binary.len().max(200) >= serialized.len(), "Binary size={}, compressed size={}", serialized_binary.len(), serialized.len());
-                    println!("Testing random serialization: name={:?}, len={}, serialied_size={}, final_size={}, json_size={}", stringify!($name), data.len(), serialized_binary.len(), serialized.len(), serialized_json.len());
+                    crate::debug!(target: LOG_TARGET, "Testing random serialization: name={:?}, len={}, serialied_size={}, final_size={}, json_size={}", stringify!($name), data.len(), serialized_binary.len(), serialized.len(), serialized_json.len());
                     let deserialized = deserialize::<Vec<$dtype>>(serialized).expect("Failed to deserialize data");
 
                     assert_eq!(data, deserialized);

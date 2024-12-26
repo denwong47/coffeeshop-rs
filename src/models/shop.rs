@@ -6,7 +6,7 @@ use std::{marker::PhantomData, sync::Arc};
 use tokio::sync::{Notify, RwLock};
 
 use super::Machine;
-use crate::{cli::Config, CoffeeShopError};
+use crate::{cli::Config, helpers, CoffeeShopError};
 
 /// The default prefix for dynamodb table.
 const DYNAMODB_TABLE_PREFIX: &str = "task-queue-";
@@ -80,6 +80,9 @@ where
     /// of baristas etc.
     pub config: Config,
 
+    /// The AWS SDK configuration for the shop.
+    pub aws_config: helpers::aws::SdkConfig,
+
     /// Phantom data to attach the input and output types to the shop.
     _phantom: PhantomData<(I, O)>,
 }
@@ -91,25 +94,41 @@ where
     F: Machine<I, O>,
 {
     /// Create a new shop with the given name, coffee machine, and configuration.
-    pub fn new(name: String, coffee_machine: F, mut config: Config) -> Arc<Self> {
+    pub async fn new(
+        name: String,
+        coffee_machine: F,
+        mut config: Config,
+        aws_config: Option<helpers::aws::SdkConfig>,
+    ) -> Result<Arc<Self>, CoffeeShopError> {
         // If the table has not been set, use the default table name with the prefix.
         // Otherwise, remove the name from `config` and put it into the [`Shop`].
         let dynamodb_table = config
             .dynamodb_table
             .take()
             .unwrap_or_else(|| format!("{}{}", DYNAMODB_TABLE_PREFIX, &name));
-        Arc::new(Self {
+
+        let aws_config = if let Some(aws_config) = aws_config {
+            aws_config
+        } else {
+            helpers::aws::get_aws_config().await?
+        };
+
+        Ok(Arc::new(Self {
             name,
             tickets: HashMap::new().into(),
             coffee_machine,
             dynamodb_table,
             config,
+            aws_config,
             _phantom: PhantomData,
-        })
+        }))
     }
 
     /// Open the shop, start listening for requests.
     pub async fn open(&self) -> Result<(), CoffeeShopError> {
+        // Report the AWS login status in order to confirm the AWS credentials.
+        helpers::sts::report_aws_login(Some(&self.aws_config)).await?;
+
         unimplemented!()
     }
 }

@@ -52,6 +52,9 @@ pub struct Config {
 
     #[arg(long, default_value = None)]
     pub dynamodb_table: Option<String>,
+
+    #[arg(long, default_value = None)]
+    pub sqs_queue: Option<String>,
 }
 
 impl Default for Config {
@@ -69,6 +72,7 @@ impl Default for Config {
             baristas: DEFAULT_BARISTAS,
             max_tickets: MAX_TICKETS,
             dynamodb_table: None,
+            sqs_queue: None,
         }
     }
 }

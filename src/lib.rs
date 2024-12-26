@@ -13,3 +13,5 @@ pub mod helpers;
 pub mod models;
 
 pub mod cli;
+
+mod logger;
