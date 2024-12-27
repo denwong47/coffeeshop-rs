@@ -62,11 +62,11 @@ jobs:
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Build
-      run: cargo build --verbose
+      run: cargo build
     - name: Check formatting
       run: cargo fmt --all -- --check
     - name: Check clippy
       run: cargo clippy --all-targets --all-features --workspace -- -D warnings
     - name: Run tests
       # Run tests in release mode as compression tests are slow in debug mode
-      run: cargo test --release --verbose --workspace -- --nocapture
+      run: cargo test --release --workspace -- --nocapture
