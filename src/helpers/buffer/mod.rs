@@ -64,6 +64,33 @@ impl BufferStateType for Write {
 }
 
 /// A bytes buffer that is actually located on disk.
+///
+/// This struct allows a buffer to be written [synchronously](StdWrite) and read
+/// [asynchronously](TokioFile), with the file being stored on disk in a
+/// [named file](Self::path).
+///
+/// This is useful particularly for compression libraries which:
+///
+/// - typically does not work asynchronously, and
+/// - may be required to process more data than can fit in memory.
+///
+/// This buffer allows the compression to be streamed into disk, and then read
+/// at its own pace (e.g. sent over the network) without needing to keep
+/// potentially excessive amounts of data in memory.
+///
+/// # Usage
+///
+/// A [`BufferOnDisk`] can be instantiated with in the [`Write`](Write) state
+/// with a reference to a [`TempDir`]. The file will be created in the directory
+/// with a random UUID as the filename.
+///
+/// Use the [`writer`](Self::writer) method to get a [`Write`](StdWrite) handler
+/// to write to the buffer. Once all data has been written, call
+/// [`finish`](Self::finish) to transition the buffer to the [`Read`](Read) state.
+///
+/// The buffer can then be read using the [`reader`](Self::reader) method, or
+/// the whole buffer can be read into memory using the
+/// [`read_to_end`](Self::read_to_end) method.
 pub struct BufferOnDisk<'d, S: BufferStateType> {
     /// The directory to the buffer. This forces the temporary directory to be
     /// kept alive for the lifetime of the buffer.
@@ -208,10 +235,15 @@ impl<'d> BufferOnDisk<'d, Write> {
     ///
     /// # Safety
     ///
-    /// This method does not guard against multiple writers being given access to the
-    /// buffer. It is up to the caller to ensure that only one writer is given access
-    /// to the buffer at a time, and is responsible for ensuring that the buffer is
-    /// flushed and closed correctly before this method is called.
+    /// This method cannot ensure the [`Write`](StdWrite) is closed. Since the
+    /// [`BufferOnDisk`] no longer has a reference to the [`Write`](StdWrite)
+    /// handler, it cannot:
+    ///
+    /// - [`flush`](StdWrite::flush) the buffer, and
+    /// - [`drop`](Drop::drop) the buffer to ensure the file is closed.
+    ///
+    /// It is up to the caller to ensure that the buffer is ready before calling this
+    /// method.
     pub async fn finish(mut self) -> Result<BufferOnDisk<'d, Read>, CoffeeShopError> {
         // Swap the prefix out of the instance.
         let mut prefix = String::new();
@@ -235,12 +267,28 @@ impl<'d> BufferOnDisk<'d, Write> {
 
     /// Return a [`Write`](StdWrite) handler for the buffer.
     ///
+    /// Since [`BufferOnDisk`] itself does not implement [`Write`](StdWrite), this method
+    /// is necessary to allow the caller to write to the buffer.
+    ///
+    /// This requires the caller to hold a mutable reference to the buffer, thus ensuring
+    /// that only one writer is given access to the buffer at a time.
+    ///
+    /// The benefit of this approach is that the [`File`](std::fs::File) handle is wholly
+    /// owned by the caller, and thus can be used in functions that require a
+    /// `impl `[`Write`]` + 'static` trait bound, such as the
+    /// [`gzp`](gzp::par::compress::ParCompressBuilder::from_writer) crate.
+    ///
     /// # Safety
     ///
-    /// This method does not guard against multiple writers being given access to the
-    /// buffer. It is up to the caller to ensure that only one writer is given access
-    /// to the buffer at a time, and is responsible for ensuring that the buffer is
-    /// closed correctly before calling [`finish`](Self::finish).
+    /// However this method cannot ensure the [`Write`](StdWrite) is closed by the
+    /// time [`finish`](Self::finish) is called. Since the [`BufferOnDisk`] no longer
+    /// has a reference to the [`Write`](StdWrite) handler, it cannot:
+    ///
+    /// - [`flush`](StdWrite::flush) the buffer, and
+    /// - [`drop`](Drop::drop) the buffer to ensure the file is closed.
+    ///
+    /// It is up to the caller to ensure that the buffer is ready to be
+    /// [`finish`](Self::finish)ed.
     pub fn writer(&mut self) -> Result<StdFile, CoffeeShopError> {
         self.file_write()
     }
@@ -263,6 +311,16 @@ impl<'d> BufferOnDisk<'d, Read> {
     /// Convenient method to read the whole buffer into memory.
     ///
     /// This will consume the buffer and the temporary file will be deleted.
+    ///
+    /// # Warning
+    ///
+    /// This method will read the whole buffer into memory. If the buffer is
+    /// large, this may cause memory issues.
+    ///
+    /// It is recommended to use the [`reader`](Self::reader) method to read the
+    /// buffer in chunks.
+    ///
+    /// This method is typically used in unit tests only.
     pub async fn read_to_end(mut self) -> Result<Vec<u8>, CoffeeShopError> {
         let reader = self.reader().await?;
         let mut output = Vec::with_capacity(BUFFER_SIZE);
