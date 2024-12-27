@@ -23,6 +23,9 @@ const DEFAULT_BARISTAS: u16 = 1;
 /// This must be set to match the table's partition key.
 const DEFAULT_DYNAMODB_PARTITION_KEY: &str = "identifier";
 
+/// The default TTL for the results in seconds.
+const DEFAULT_RESULT_TTL: f32 = 7200.;
+
 /// The maximum number of outstanding tickets before the waiter starts rejecting new
 /// requests with a `429 Too Many Requests` status code.
 const MAX_TICKETS: usize = 1024;
@@ -62,6 +65,9 @@ pub struct Config {
     #[arg(long, default_value = DEFAULT_DYNAMODB_PARTITION_KEY, alias = "dynamodb_primary_key")]
     pub dynamodb_partition_key: String,
 
+    #[arg(long, default_value_t = DEFAULT_RESULT_TTL)]
+    pub result_ttl: f32,
+
     /// The AWS SQS queue URL to use.
     ///
     /// The AWS user must have the necessary permissions to send and receive messages
@@ -86,6 +92,7 @@ impl Default for Config {
             max_tickets: MAX_TICKETS,
             dynamodb_table: None,
             dynamodb_partition_key: DEFAULT_DYNAMODB_PARTITION_KEY.to_owned(),
+            result_ttl: DEFAULT_RESULT_TTL,
             sqs_queue: None,
         }
     }
@@ -162,6 +169,11 @@ impl Config {
     /// Get the host address in a packaged [`SocketAddr`] instance.
     pub fn host_addr(&self) -> SocketAddr {
         SocketAddr::new(IpAddr::V4(self.host), self.port)
+    }
+
+    /// Get the DynamoDB TTL in [`tokio::time::Duration`] format.
+    pub fn dynamodb_ttl(&self) -> tokio::time::Duration {
+        tokio::time::Duration::from_secs_f32(self.result_ttl)
     }
 }
 
