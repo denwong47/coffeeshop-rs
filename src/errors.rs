@@ -11,7 +11,57 @@ mod sqs {
     pub use aws_sdk_sqs::types::error::*;
 }
 
-#[derive(Error, Debug)]
+/// The error type for the Coffee Shop crate.
+#[non_exhaustive]
+#[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CoffeeMachineError {
+    /// The HTTP status code to send to the client in the response.
+    #[serde(with = "http_serde::status_code")]
+    status_code: http::StatusCode,
+
+    /// An identifier for the type of error that occurred in PascalCase, e.g.
+    /// `InvalidConfiguration`.
+    error: String,
+
+    /// Additional details for the error.
+    ///
+    /// These are returned to the user directly as part of the error response.
+    /// This crate will not attempt to interpret the contents of this field.
+    ///
+    /// It is encouraged for this field to contain the key "message" with a human-readable
+    /// error message.
+    details: Option<serde_json::Value>,
+}
+
+impl CoffeeMachineError {
+    /// Create a new instance of [`CoffeeMachineError`].
+    pub fn new(
+        status_code: http::StatusCode,
+        error: String,
+        details: Option<serde_json::Value>,
+    ) -> Self {
+        Self {
+            status_code,
+            error,
+            details,
+        }
+    }
+}
+
+impl std::fmt::Display for CoffeeMachineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}: {}",
+            self.status_code
+                .canonical_reason()
+                .unwrap_or(&format!("{:?}", self.status_code.as_u16())),
+            self.error
+        )
+    }
+}
+
+#[derive(Error, Debug, strum::IntoStaticStr)]
 pub enum CoffeeShopError {
     #[error("Invalid configuration for {field}: {message}")]
     InvalidConfiguration {
@@ -84,6 +134,9 @@ pub enum CoffeeShopError {
     /// Use this as a last resort, as it is not specific to any SDK.
     #[error("AWS SDK Error: {0}")]
     AWSSdkError(String),
+
+    #[error("Error during processing: {0}")]
+    ProcessingError(#[from] CoffeeMachineError),
 }
 
 impl CoffeeShopError {
@@ -142,13 +195,32 @@ impl CoffeeShopError {
             CoffeeShopError::InvalidMulticastMessage { .. } => http::StatusCode::BAD_REQUEST,
             CoffeeShopError::RetrieveTimeout(_) => http::StatusCode::REQUEST_TIMEOUT,
             CoffeeShopError::Base64EncodingOversize(_) => http::StatusCode::PAYLOAD_TOO_LARGE,
+            CoffeeShopError::ProcessingError(CoffeeMachineError { status_code, .. }) => {
+                *status_code
+            }
             _ => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
     /// This method returns the kind of error as a string.
-    pub fn kind(&self) -> String {
-        format!("{:?}", self)
+    pub fn kind(&self) -> &'static str {
+        self.into()
+    }
+
+    /// Converts the error into a JSON object.
+    pub fn as_json(&self) -> serde_json::Value {
+        match self {
+            // Potentiall unsafe!
+            Self::ProcessingError(err) => serde_json::to_value(err).expect(
+                "Failed to serialize the `CoffeeMachineError` into JSON for the response. Please check your error type definition.",
+            ),
+            _ => serde_json::json!({
+                "error": self.kind(),
+                "details": {
+                    "message": self.to_string(),
+                },
+            })
+        }
     }
 }
 
@@ -160,12 +232,7 @@ impl IntoResponse for CoffeeShopError {
                 (http::header::CONTENT_TYPE, "application/json"),
                 (http::header::CACHE_CONTROL, "no-store"),
             ],
-            Json(serde_json::json!({
-                "error": self.kind(),
-                "details": {
-                    "message": self.to_string(),
-                },
-            })),
+            Json(self.as_json()),
         )
             .into_response()
     }

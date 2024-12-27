@@ -5,11 +5,14 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::{marker::PhantomData, sync::Arc};
 use tokio::sync::{Notify, RwLock};
 
-use super::Machine;
+use super::{message, Machine};
 use crate::{cli::Config, helpers, CoffeeShopError};
 
 /// The default prefix for dynamodb table.
 const DYNAMODB_TABLE_PREFIX: &str = "task-queue-";
+
+/// The default prefix for SQS queue.
+const SQS_QUEUE_PREFIX: &str = "task-queue-";
 
 /// A coffee shop that has a waiter to take orders, and positive number of baristas to process
 /// tickets using the coffee machine.
@@ -48,11 +51,12 @@ const DYNAMODB_TABLE_PREFIX: &str = "task-queue-";
 /// Perhaps the problem is with the real world - why shouldn't Starbucks be able to
 /// do that?
 #[derive(Debug)]
-pub struct Shop<I, O, F>
+pub struct Shop<Q, I, O, F>
 where
+    Q: message::QueryType,
     I: Serialize + DeserializeOwned,
     O: Serialize + DeserializeOwned,
-    F: Machine<I, O>,
+    F: Machine<Q, I, O>,
 {
     /// The name of the task that this shop is responsible for.
     ///
@@ -69,10 +73,13 @@ where
     /// This is the actual task that will be executed when a ticket is received. It should be able
     /// to tell apart any different types of tickets among the generic input type `I`, and produce
     /// a generic output type `O` regardless of the input type.
-    coffee_machine: F,
+    pub coffee_machine: F,
 
     /// Dynamodb table name to store the finished products.
     pub dynamodb_table: String,
+
+    /// The SQS queue name to store the tickets.
+    pub sqs_queue: String,
 
     /// The configuration for the shop.
     ///
@@ -87,14 +94,15 @@ where
     temp_dir: tempfile::TempDir,
 
     /// Phantom data to attach the input and output types to the shop.
-    _phantom: PhantomData<(I, O)>,
+    _phantom: PhantomData<(Q, I, O)>,
 }
 
-impl<I, O, F> Shop<I, O, F>
+impl<Q, I, O, F> Shop<Q, I, O, F>
 where
+    Q: message::QueryType,
     I: Serialize + DeserializeOwned,
     O: Serialize + DeserializeOwned,
-    F: Machine<I, O>,
+    F: Machine<Q, I, O>,
 {
     /// Create a new shop with the given name, coffee machine, and configuration.
     pub async fn new(
@@ -110,6 +118,11 @@ where
             .take()
             .unwrap_or_else(|| format!("{}{}", DYNAMODB_TABLE_PREFIX, &name));
 
+        let sqs_queue = config
+            .sqs_queue
+            .take()
+            .unwrap_or_else(|| format!("{}{}", SQS_QUEUE_PREFIX, &name));
+
         let aws_config = if let Some(aws_config) = aws_config {
             aws_config
         } else {
@@ -121,6 +134,7 @@ where
             tickets: HashMap::new().into(),
             coffee_machine,
             dynamodb_table,
+            sqs_queue,
             config,
             aws_config,
             temp_dir: tempfile::tempdir().map_err(CoffeeShopError::from_io_error)?,

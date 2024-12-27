@@ -7,7 +7,7 @@
 //!   into an AWS SQS standard queue, which will then
 
 mod errors;
-pub use errors::CoffeeShopError;
+pub use errors::{CoffeeMachineError, CoffeeShopError};
 
 pub mod helpers;
 pub mod models;

@@ -18,6 +18,11 @@ const MULTICAST_PORT: u16 = 65355;
 /// The number of Baristas to initiate.
 const DEFAULT_BARISTAS: u16 = 1;
 
+/// The default partition key (Primary Key) to use with the DynamoDB Table.
+///
+/// This must be set to match the table's partition key.
+const DEFAULT_DYNAMODB_PARTITION_KEY: &str = "identifier";
+
 /// The maximum number of outstanding tickets before the waiter starts rejecting new
 /// requests with a `429 Too Many Requests` status code.
 const MAX_TICKETS: usize = 1024;
@@ -54,6 +59,9 @@ pub struct Config {
     #[arg(long, default_value = None)]
     pub dynamodb_table: Option<String>,
 
+    #[arg(long, default_value = DEFAULT_DYNAMODB_PARTITION_KEY, alias = "dynamodb_primary_key")]
+    pub dynamodb_partition_key: String,
+
     /// The AWS SQS queue URL to use.
     ///
     /// The AWS user must have the necessary permissions to send and receive messages
@@ -77,6 +85,7 @@ impl Default for Config {
             baristas: DEFAULT_BARISTAS,
             max_tickets: MAX_TICKETS,
             dynamodb_table: None,
+            dynamodb_partition_key: DEFAULT_DYNAMODB_PARTITION_KEY.to_owned(),
             sqs_queue: None,
         }
     }

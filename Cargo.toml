@@ -11,6 +11,7 @@ sqs_strict = []
 test_on_aws = []
 
 [dependencies]
+async-trait = "0.1.83"
 aws-config = { version = "1.5.11", features = ["behavior-version-latest"] }
 aws-sdk-dynamodb = "1.55.0"
 aws-sdk-sqs = "1.50.0"
@@ -25,6 +26,7 @@ env_logger = { version = "0.11.6", optional = true }
 gethostname = "0.5.0"
 gzp = "0.11.3"
 hashbrown = "0.15.2"
+http-serde = "2.1.1"
 log = { version = "0.4.22", features = ["std"], optional = true}
 num_cpus = "1.16.0"
 prost = "0.13.4"
@@ -33,6 +35,7 @@ rmp-serde = "1.3.0"
 serde = { version = "1.0.215", features = ["derive"] }
 serde_json = "1.0.134"
 serde_with = "3.11.0"
+strum = { version = "0.26.3", features = ["derive"] }
 tempfile = "3.14.0"
 thiserror = "2.0.6"
 tokio = { version = "1.42.0", features = ["fs", "macros", "rt-multi-thread", "signal", "sync", "time"] }

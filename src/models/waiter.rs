@@ -30,10 +30,10 @@ where
     Q: message::QueryType,
     I: serde::de::DeserializeOwned + serde::Serialize,
     O: serde::Serialize + serde::de::DeserializeOwned,
-    F: Machine<I, O>,
+    F: Machine<Q, I, O>,
 {
     /// The back reference to the shop that this waiter is serving.
-    pub shop: Arc<Shop<I, O, F>>,
+    pub shop: Arc<Shop<Q, I, O, F>>,
 
     /// The total amount of historical requests processed.
     /// Only the [`request`](Self::request) and [`async_request`](Self::async_request) methods
@@ -50,7 +50,7 @@ where
     Q: message::QueryType,
     I: serde::de::DeserializeOwned + serde::Serialize,
     O: serde::Serialize + serde::de::DeserializeOwned,
-    F: Machine<I, O>,
+    F: Machine<Q, I, O>,
 {
     /// `GET` Handler for getting the status of the waiter.
     pub async fn status(&self) -> impl IntoResponse {
