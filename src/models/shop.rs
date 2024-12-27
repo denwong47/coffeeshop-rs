@@ -27,7 +27,7 @@ const DYNAMODB_TABLE_PREFIX: &str = "task-queue-";
 /// number of messages in the queue.
 ///
 /// Depending on the node type for the [`Shop`], each
-/// [`Shop`] can have a different number of barristas within it, but will always have one
+/// [`Shop`] can have a different number of baristas within it, but will always have one
 /// waiter. Choosing the waiter to serve incoming requests is the responsibility of the
 /// load balancer, and is not part of this implementation; however as the waiter has
 /// very virtually no blocking work to do, [`tokio`] alone should be able to handle
@@ -83,6 +83,9 @@ where
     /// The AWS SDK configuration for the shop.
     pub aws_config: helpers::aws::SdkConfig,
 
+    /// Temporary Directory for serialization and deserialization.
+    temp_dir: tempfile::TempDir,
+
     /// Phantom data to attach the input and output types to the shop.
     _phantom: PhantomData<(I, O)>,
 }
@@ -120,6 +123,7 @@ where
             dynamodb_table,
             config,
             aws_config,
+            temp_dir: tempfile::tempdir().map_err(CoffeeShopError::from_io_error)?,
             _phantom: PhantomData,
         }))
     }

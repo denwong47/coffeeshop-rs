@@ -36,7 +36,7 @@ repos:
         language: system
       - id: cargo-test
         name: cargo-test
-        entry: bash -c 'cargo test --all --features=debug --release'
+        entry: bash -c 'cargo test --all --features=debug,sqs_strict --no-default-features --release -- --nocapture'
         language: system
 - repo: https://github.com/rhysd/actionlint
   rev: v1.7.1

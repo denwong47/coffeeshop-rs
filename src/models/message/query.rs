@@ -9,7 +9,7 @@ use tokio::time::Duration;
 /// This allows the designer to customise the query parameters to their needs, while
 /// maintaining a standardised interface for the waiter to know certain information about
 /// the query.
-pub trait QueryType: serde::de::DeserializeOwned {
+pub trait QueryType: serde::de::DeserializeOwned + serde::Serialize {
     /// Get the timeout for the query.
     ///
     /// This is used to determine how long the waiter should wait for a response

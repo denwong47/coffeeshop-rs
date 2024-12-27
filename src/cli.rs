@@ -50,9 +50,14 @@ pub struct Config {
     #[arg(long, default_value_t = MAX_TICKETS)]
     pub max_tickets: usize,
 
+    /// The AWS DynamoDB table to use.
     #[arg(long, default_value = None)]
     pub dynamodb_table: Option<String>,
 
+    /// The AWS SQS queue URL to use.
+    ///
+    /// The AWS user must have the necessary permissions to send and receive messages
+    /// from this queue
     #[arg(long, default_value = None)]
     pub sqs_queue: Option<String>,
 }
@@ -116,7 +121,7 @@ impl Config {
         if count == 0 {
             Err(CoffeeShopError::InvalidConfiguration {
                 field: "baristas",
-                value: format!("must be positive number, found {count}."),
+                message: format!("must be positive number, found {count}."),
             })
         } else {
             // Refuse to allow `0` baristas.
@@ -130,7 +135,7 @@ impl Config {
         if count == 0 {
             Err(CoffeeShopError::InvalidConfiguration {
                 field: "max_tickets",
-                value: format!("must be positive number, found {count}."),
+                message: format!("must be positive number, found {count}."),
             })
         } else {
             self.max_tickets = count;
@@ -214,7 +219,7 @@ mod tests {
         ) -> Err(
             CoffeeShopError::InvalidConfiguration{
                 field: "baristas",
-                value: "must be positive number, found 0.".to_owned()
+                message: "must be positive number, found 0.".to_owned()
             }
         )
     );
@@ -244,7 +249,7 @@ mod tests {
         ) -> Err(
             CoffeeShopError::InvalidConfiguration{
                 field: "max_tickets",
-                value: "must be positive number, found 0.".to_owned()
+                message: "must be positive number, found 0.".to_owned()
             }
         )
     );

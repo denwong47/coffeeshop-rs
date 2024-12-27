@@ -4,9 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["debug"]
+default = ["debug", "sqs_strict", "test_on_aws"]
 debug = ["dep:log", "dep:env_logger"]
 env_logger = ["dep:env_logger"]
+sqs_strict = []
+test_on_aws = []
 
 [dependencies]
 aws-config = { version = "1.5.11", features = ["behavior-version-latest"] }
@@ -41,3 +43,4 @@ prost-build = "0.13.4"
 
 [dev-dependencies]
 rand = "0.8.5"
+serial_test = "3.2.0"

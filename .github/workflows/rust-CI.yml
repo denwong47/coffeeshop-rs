@@ -22,6 +22,7 @@ env:
   AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
   AWS_PROFILE: github-ci-coffeeshop-rs
   AWS_SDK_LOAD_CONFIG: true
+  TEST_QUEUE_URL: ${{ vars.TEST_QUEUE_URL }}
 
 jobs:
   build:
@@ -57,4 +58,4 @@ jobs:
       run: cargo clippy --all-targets --all-features --workspace -- -D warnings
     - name: Run tests
       # Run tests in release mode as compression tests are slow in debug mode
-      run: cargo test --release --verbose --workspace
+      run: cargo test --release --verbose --workspace -- --nocapture

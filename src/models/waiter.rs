@@ -76,19 +76,13 @@ where
     ) -> impl IntoResponse {
         let timeout = params.get_timeout();
 
-        self.create_and_retrieve_ticket(
-            message::CombinedInput {
-                query: params,
-                input: Some(payload),
-            },
-            timeout,
-        )
-        .await
-        .map(|(ticket, output)| message::OutputResponse {
-            ticket,
-            metadata: message::ResponseMetadata::new(&self.start_time),
-            output,
-        })
+        self.create_and_retrieve_ticket(message::CombinedInput::new(params, Some(payload)), timeout)
+            .await
+            .map(|(ticket, output)| message::OutputResponse {
+                ticket,
+                metadata: message::ResponseMetadata::new(&self.start_time),
+                output,
+            })
     }
 
     /// `POST` Handler for asynchronous requests.

@@ -59,6 +59,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[cfg(feature = "test_on_aws")]
     async fn get_aws_login_with_default() {
         let result = get_aws_login(None).await.inspect(|result| {
             crate::info!(
