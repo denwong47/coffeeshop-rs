@@ -24,6 +24,7 @@ env:
   AWS_SDK_LOAD_CONFIG: true
   TEST_QUEUE_URL: ${{ vars.TEST_QUEUE_URL }}
   TEST_DYNAMODB_TABLE: ${{ vars.TEST_DYNAMODB_TABLE }}
+  RUST_LOG: info
 
 jobs:
   build:
