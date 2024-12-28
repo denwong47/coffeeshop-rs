@@ -3,9 +3,12 @@
 //! For synchronous requests, the waiter will also asynchronously await a [`Notify`](tokio::sync::Notify)
 //! event from the multicast channel and report back to the client when the request had been processed.
 
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+use std::{
+    ops::Deref,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
 };
 
 use axum::extract::{Json, Query};
@@ -28,8 +31,8 @@ const MAX_WAITER_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_se
 pub struct Waiter<Q, I, O, F>
 where
     Q: message::QueryType,
-    I: serde::de::DeserializeOwned + serde::Serialize,
-    O: serde::Serialize + serde::de::DeserializeOwned,
+    I: serde::Serialize + serde::de::DeserializeOwned,
+    O: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
     /// The back reference to the shop that this waiter is serving.
@@ -42,14 +45,13 @@ where
     /// Internally, this is done by [`create_ticket`](Self::create_ticket).
     pub request_count: Arc<AtomicUsize>,
     pub start_time: tokio::time::Instant,
-    _phantom: std::marker::PhantomData<(Q, I, O)>,
 }
 
 impl<Q, I, O, F> Waiter<Q, I, O, F>
 where
     Q: message::QueryType,
-    I: serde::de::DeserializeOwned + serde::Serialize,
-    O: serde::Serialize + serde::de::DeserializeOwned,
+    I: serde::Serialize + serde::de::DeserializeOwned,
+    O: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
     /// `GET` Handler for getting the status of the waiter.
@@ -119,13 +121,8 @@ where
     ) -> Result<(message::Ticket, Arc<Order<O>>), CoffeeShopError> {
         self.request_count.fetch_add(1, Ordering::Relaxed);
 
-        let ticket = helpers::sqs::put_ticket(
-            &self.shop.sqs_queue,
-            &self.shop.aws_config,
-            input,
-            &self.shop.temp_dir,
-        )
-        .await?;
+        let ticket =
+            helpers::sqs::put_ticket(self.shop.deref(), input, &self.shop.temp_dir).await?;
 
         Ok((ticket.clone(), self.shop.spawn_order(ticket).await))
     }

@@ -28,24 +28,19 @@ fn get_random_ticket() -> Ticket {
 }
 
 /// Convenience function to get the statics for the test.
-async fn get_statics() -> (
-    aws::SdkConfig,
-    String,
-    &'static str,
-    Ticket,
-    &'static tokio::time::Duration,
-    tempfile::TempDir,
-) {
+async fn get_statics() -> (DynamoDBConfiguration, Ticket, tempfile::TempDir) {
     let config = aws::get_aws_config()
         .await
         .expect("Failed to get AWS configuration.");
 
     (
-        config,
-        get_dynamodb_table(),
-        PARTITION_KEY,
+        DynamoDBConfiguration {
+            table: get_dynamodb_table(),
+            partition_key: PARTITION_KEY.to_owned(),
+            ttl: TTL,
+            aws_config: config,
+        },
         get_random_ticket(),
-        &TTL,
         tempfile::tempdir().expect("Failed to create temporary directory."),
     )
 }
@@ -69,22 +64,19 @@ mod put_items {
             #[tokio::test]
             #[cfg(feature = "test_on_aws")]
             async fn $name() {
-                let (config, table, partition_key, ticket, ttl, temp_dir) = get_statics().await;
+                let (config, ticket, temp_dir) = get_statics().await;
                 let result = $result;
 
                 put_item(
-                    &table,
-                    partition_key,
                     &config,
                     &ticket,
                     result,
-                    ttl,
                     &temp_dir,
                 )
                 .await
                 .expect("Failed to put the processing result into the DynamoDB table.");
 
-                crate::info!(target: LOG_TARGET, "Put {:?} into DynamoDB table {}.", stringify!($name), table);
+                crate::info!(target: LOG_TARGET, "Put {:?} into DynamoDB table {}.", stringify!($name), config.dynamodb_table());
             }
         };
     }

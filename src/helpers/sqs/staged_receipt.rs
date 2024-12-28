@@ -3,7 +3,7 @@ use aws_sdk_sqs as sqs;
 use std::cell::OnceCell;
 
 use crate::{
-    helpers::{aws, serde::deserialize},
+    helpers::{serde::deserialize, sqs::HasSQSConfiguration},
     models::{message, Ticket},
     CoffeeShopError,
 };
@@ -46,17 +46,16 @@ where
 {
     /// Create a new [`StagedReceipt`] instance.
     pub async fn receive(
-        config: &aws::SdkConfig,
-        queue_url: &str,
+        config: &dyn HasSQSConfiguration,
         timeout: Option<tokio::time::Duration>,
     ) -> Result<Self, CoffeeShopError> {
-        let client = sqs::Client::new(config);
+        let client = sqs::Client::new(config.aws_config());
 
         let timeout = timeout.unwrap_or(DEFAULT_WAIT_TIME);
 
         let receive_results = client
             .receive_message()
-            .queue_url(queue_url)
+            .queue_url(config.sqs_queue_url())
             .max_number_of_messages(1)
             .wait_time_seconds(timeout.as_secs() as i32)
             // Visibility timeout is NOT set here; we will leave it for the queue to handle.
@@ -92,7 +91,7 @@ where
                 ticket,
                 message,
                 receipt_handle,
-                queue_url: queue_url.to_string(),
+                queue_url: config.sqs_queue_url().to_owned(),
                 completed: OnceCell::new(),
             })
         } else {

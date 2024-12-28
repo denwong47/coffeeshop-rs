@@ -1,16 +1,15 @@
 use crate::{
-    helpers::{self, aws},
+    helpers,
     models::{message, Ticket},
     CoffeeShopError,
 };
 use aws_sdk_sqs as sqs;
 
-use super::{encoding, StagedReceipt};
+use super::{encoding, HasSQSConfiguration, StagedReceipt};
 
 /// Put a ticket into the AWS SQS queue.
 pub async fn put_ticket<Q, I>(
-    queue_url: &str,
-    config: &aws::SdkConfig,
+    config: &dyn HasSQSConfiguration,
     input: message::CombinedInput<Q, I>,
     temp_dir: &tempfile::TempDir,
 ) -> Result<Ticket, CoffeeShopError>
@@ -18,13 +17,13 @@ where
     Q: message::QueryType,
     I: serde::de::DeserializeOwned + serde::Serialize,
 {
-    let client = sqs::Client::new(config);
+    let client = sqs::Client::new(config.aws_config());
 
     let serialized_input = helpers::serde::serialize(&input, temp_dir).await?;
 
     let response = client
         .send_message()
-        .queue_url(queue_url)
+        .queue_url(config.sqs_queue_url())
         .message_body(encoding::encode(&serialized_input.read_to_end().await?).await?)
         .send()
         .await
@@ -41,8 +40,7 @@ where
 
 /// Retrieve a ticket from the AWS SQS queue.
 pub async fn retrieve_ticket<Q, I>(
-    queue_url: &str,
-    config: &aws::SdkConfig,
+    config: &dyn HasSQSConfiguration,
     timeout: Option<tokio::time::Duration>,
 ) -> Result<StagedReceipt<Q, I>, CoffeeShopError>
 where
@@ -50,19 +48,16 @@ where
     I: serde::de::DeserializeOwned + serde::Serialize,
 {
     // Call the `receive` method on the `StagedReceipt` struct.
-    StagedReceipt::receive(config, queue_url, timeout).await
+    StagedReceipt::receive(config, timeout).await
 }
 
 /// Purge a queue of all messages.
-pub async fn purge_tickets(
-    queue_url: &str,
-    config: &aws::SdkConfig,
-) -> Result<(), CoffeeShopError> {
-    let client = sqs::Client::new(config);
+pub async fn purge_tickets(config: &dyn HasSQSConfiguration) -> Result<(), CoffeeShopError> {
+    let client = sqs::Client::new(config.aws_config());
 
     client
         .purge_queue()
-        .queue_url(queue_url)
+        .queue_url(config.sqs_queue_url())
         .send()
         .await
         .map_err(|err| CoffeeShopError::AWSSdkError(format!("{:?}", err)))?;
@@ -71,15 +66,12 @@ pub async fn purge_tickets(
 }
 
 /// Get ticket count.
-pub async fn get_ticket_count(
-    queue_url: &str,
-    config: &aws::SdkConfig,
-) -> Result<usize, CoffeeShopError> {
-    let client = sqs::Client::new(config);
+pub async fn get_ticket_count(config: &dyn HasSQSConfiguration) -> Result<usize, CoffeeShopError> {
+    let client = sqs::Client::new(config.aws_config());
 
     let response = client
         .get_queue_attributes()
-        .queue_url(queue_url)
+        .queue_url(config.sqs_queue_url())
         .attribute_names(sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
         .send()
         .await

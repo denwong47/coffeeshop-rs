@@ -2,6 +2,9 @@
 //! DynamoDB.
 //!
 
+mod config;
+pub use config::*;
+
 mod process_result_to_item;
 pub use process_result_to_item::*;
 

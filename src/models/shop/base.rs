@@ -3,7 +3,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::{marker::PhantomData, sync::Arc};
 use tokio::sync::RwLock;
 
-use super::{message, Machine, Order, Orders, Ticket};
+use super::super::{message, Machine, Order, Orders, Ticket};
 use crate::{cli::Config, helpers, CoffeeShopError};
 
 /// The default prefix for dynamodb table.
@@ -92,7 +92,7 @@ where
     pub(crate) temp_dir: tempfile::TempDir,
 
     /// Phantom data to attach the input and output types to the shop.
-    _phantom: PhantomData<(Q, I, O)>,
+    _phantom: PhantomData<(Q, I)>,
 }
 
 impl<Q, I, O, F> Shop<Q, I, O, F>

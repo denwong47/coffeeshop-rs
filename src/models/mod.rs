@@ -18,14 +18,11 @@
 mod barista;
 pub use barista::Barista;
 
-mod collection_point;
-pub use collection_point::CollectionPoint;
-
 mod order;
 pub use order::{Order, Orders};
 
 mod shop;
-pub use shop::Shop;
+pub use shop::*;
 
 mod machine;
 pub use machine::Machine;

@@ -1,3 +1,13 @@
+//! This module contains implementations on
+//! [`dynamodb::operation::put_item::builders::PutItemFluentBuilder`] to convert
+//! processing results into DynamoDB items.
+//!
+//! If the result is a [`Ok<O, _>`], then a `output` field is added to the item
+//! with a status code of `200`.
+//! If the result is a [`Err<_, CoffeeShopError>`], then an `error` field is added
+//! to the item with the status code of the error. The error message is customised
+//! by the error type of [`CoffeeShopError::ErrorSchema`].
+
 use crate::{helpers, models::Ticket, CoffeeShopError};
 
 use aws_sdk_dynamodb as dynamodb;

@@ -5,6 +5,9 @@
 #[cfg(doc)]
 use crate::models::{Barista, Waiter};
 
+mod config;
+pub use config::*;
+
 pub mod encoding;
 
 mod func;

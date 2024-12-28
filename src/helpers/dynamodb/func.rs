@@ -1,28 +1,26 @@
 //! Helper functions to interact with DynamoDB as a key-value result store.
 
-use crate::{helpers::aws, models::Ticket, CoffeeShopError};
+use crate::{models::Ticket, CoffeeShopError};
 use aws_sdk_dynamodb as dynamodb;
 
-use super::ToItem;
+use super::{HasDynamoDBConfiguration, ToItem};
 
 /// Put a processing result into a DynamoDB table.
 pub async fn put_item<O>(
-    table: &str,
-    partition_key: &str,
-    config: &aws::SdkConfig,
+    config: &dyn HasDynamoDBConfiguration,
     ticket: &Ticket,
     result: Result<O, CoffeeShopError>,
-    ttl: &tokio::time::Duration,
     temp_dir: &tempfile::TempDir,
 ) -> Result<(), CoffeeShopError>
 where
     O: serde::Serialize + Send + Sync,
 {
-    let client = dynamodb::Client::new(config);
+    let client = dynamodb::Client::new(config.aws_config());
+    let table = config.dynamodb_table();
 
     client.put_item()
         .table_name(table)
-        .report_ticket_result(partition_key, ticket, result, ttl, temp_dir).await?
+        .report_ticket_result(config.dynamodb_partition_key(), ticket, result, &config.dynamodb_ttl(), temp_dir).await?
         .send()
         .await
         .map_err(|sdk_err| {

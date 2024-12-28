@@ -17,3 +17,9 @@ pub async fn get_aws_config() -> Result<aws_config::SdkConfig, CoffeeShopError> 
 
     Ok(config)
 }
+
+/// A trait indicating that the implementing struct has an AWS SDK configuration.
+pub trait HasAWSSdkConfig {
+    /// Get the AWS configuration.
+    fn aws_config(&self) -> &SdkConfig;
+}

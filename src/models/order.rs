@@ -107,7 +107,7 @@ where
     ///
     /// This method can only be used on [`Arc<Order>`] instances; which is typically
     /// used in conjunction with [`Orders::get`].
-    pub fn is_stale(self: &Arc<Self>, timeout: std::time::Duration) -> bool {
+    pub fn is_stale(self: &Arc<Self>, max_age: std::time::Duration) -> bool {
         crate::trace!(
             target: LOG_TARGET,
             "Order has {} strong references and the result is {} seconds old.",
@@ -115,7 +115,7 @@ where
             self.age_of_result().map(|age| age.as_secs_f32()).unwrap_or(0.),
         );
 
-        matches!((Arc::strong_count(self), self.age_of_result()), (n, Some(age)) if n <= 1 && age > timeout)
+        matches!((Arc::strong_count(self), self.age_of_result()), (n, Some(age)) if n <= 1 && age > max_age)
     }
 
     /// Wait indefinitely for the ticket to be ready, and get the result when it is.

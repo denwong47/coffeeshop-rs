@@ -55,7 +55,7 @@ mod full_workflow {
     }
 
     /// Convenience function to get the statics for the test.
-    async fn get_statics() -> (aws::SdkConfig, String, tempfile::TempDir) {
+    async fn get_statics() -> (SQSConfiguration, tempfile::TempDir) {
         let config = aws::get_aws_config()
             .await
             .expect("Failed to get AWS configuration.");
@@ -63,31 +63,37 @@ mod full_workflow {
         let queue_url = get_queue_url();
         let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory.");
 
-        (config, queue_url, temp_dir)
+        (
+            SQSConfiguration {
+                queue_url,
+                aws_config: config,
+            },
+            temp_dir,
+        )
     }
 
     #[serial_test::serial(sqs_test_queue)]
     #[tokio::test]
     #[cfg(feature = "test_on_aws")]
     async fn get_from_empty_queue() {
-        let (config, queue_url, ..) = get_statics().await;
+        let (config, ..) = get_statics().await;
 
-        let ticket_count = get_ticket_count(&queue_url, &config)
+        let ticket_count = get_ticket_count(&config)
             .await
             .expect("Failed to get the ticket count.");
         // Purge the queue. This is necessary because the queue may not be empty.
         if ticket_count > 0 {
-            crate::info!(target: LOG_TARGET, "Ticket count is {}, purging tickets from {}...", ticket_count, queue_url);
-            purge_tickets(&queue_url, &config)
+            crate::info!(target: LOG_TARGET, "Ticket count is {}, purging tickets from {}...", ticket_count, config.sqs_queue_url());
+            purge_tickets(&config)
                 .await
                 .expect("Failed to purge the queue.");
         } else {
             crate::info!(target: LOG_TARGET, "Queue is already empty, no need to purge.");
         }
 
-        crate::debug!(target: LOG_TARGET, "Retrieving ticket from the empty queue of {}...", queue_url);
+        crate::debug!(target: LOG_TARGET, "Retrieving ticket from the empty queue of {}...", config.sqs_queue_url());
         let has_timedout = tokio::select! {
-            result = retrieve_ticket::<TestQuery, TestPayload>(&queue_url, &config, Some(tokio::time::Duration::from_secs(1))) => {
+            result = retrieve_ticket::<TestQuery, TestPayload>(&config, Some(tokio::time::Duration::from_secs(1))) => {
                 match result {
                     Ok(receipt) => {
                         crate::warn!(target: LOG_TARGET, "Received unexpected ticket!");
@@ -121,7 +127,7 @@ mod full_workflow {
     #[tokio::test]
     #[cfg(feature = "test_on_aws")]
     async fn put_and_delete_ticket() {
-        let (config, queue_url, temp_dir) = get_statics().await;
+        let (config, temp_dir) = get_statics().await;
 
         // Building the queries and payloads.
         let query = TestQuery {
@@ -135,11 +141,12 @@ mod full_workflow {
             duration: 1.0,
         };
 
+        let queue_url = config.sqs_queue_url();
+
         crate::debug!(target: LOG_TARGET, "Putting ticket into {}...", queue_url);
 
         // Put the ticket into the queue.
         let ticket = put_ticket(
-            &queue_url,
             &config,
             message::CombinedInput::new(query.clone(), Some(payload.clone())),
             &temp_dir,
@@ -150,10 +157,9 @@ mod full_workflow {
         crate::info!(target: LOG_TARGET, "Got ticket #{}.", &ticket);
         crate::debug!(target: LOG_TARGET, "Retrieving ticket from {}...", queue_url);
 
-        let receipt: StagedReceipt<TestQuery, TestPayload> =
-            retrieve_ticket(&queue_url, &config, TIMEOUT)
-                .await
-                .expect("Failed to retrieve the ticket from the queue.");
+        let receipt: StagedReceipt<TestQuery, TestPayload> = retrieve_ticket(&config, TIMEOUT)
+            .await
+            .expect("Failed to retrieve the ticket from the queue.");
 
         assert_eq!(&receipt.ticket, &ticket);
 
@@ -168,7 +174,6 @@ mod full_workflow {
         crate::info!(target: LOG_TARGET, "Deleted ticket #{}.", &ticket);
 
         match retrieve_ticket::<TestQuery, TestPayload>(
-            &queue_url,
             &config,
             Some(tokio::time::Duration::from_secs(1)),
         )
@@ -194,7 +199,8 @@ mod full_workflow {
     #[tokio::test]
     #[cfg(feature = "test_on_aws")]
     async fn put_and_abort_ticket() {
-        let (config, queue_url, temp_dir) = get_statics().await;
+        let (config, temp_dir) = get_statics().await;
+        let queue_url = config.sqs_queue_url();
 
         // Building the queries and payloads.
         let query = TestQuery {
@@ -212,7 +218,6 @@ mod full_workflow {
 
         // Put the ticket into the queue.
         let ticket = put_ticket(
-            &queue_url,
             &config,
             message::CombinedInput::new(query.clone(), Some(payload.clone())),
             &temp_dir,
@@ -223,10 +228,9 @@ mod full_workflow {
         crate::info!(target: LOG_TARGET, "Got ticket #{}.", &ticket);
         crate::debug!(target: LOG_TARGET, "Retrieving ticket from {}...", queue_url);
 
-        let receipt: StagedReceipt<TestQuery, TestPayload> =
-            retrieve_ticket(&queue_url, &config, TIMEOUT)
-                .await
-                .expect("Failed to retrieve the ticket from the queue.");
+        let receipt: StagedReceipt<TestQuery, TestPayload> = retrieve_ticket(&config, TIMEOUT)
+            .await
+            .expect("Failed to retrieve the ticket from the queue.");
 
         assert_eq!(&receipt.ticket, &ticket);
 
@@ -238,7 +242,6 @@ mod full_workflow {
         crate::info!(target: LOG_TARGET, "Aborted ticket #{}. Trying again to retrieve it...", &ticket);
 
         match retrieve_ticket::<TestQuery, TestPayload>(
-            &queue_url,
             &config,
             Some(tokio::time::Duration::from_secs(1)),
         )

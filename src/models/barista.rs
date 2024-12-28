@@ -1,4 +1,7 @@
-use std::sync::{atomic::AtomicUsize, Arc};
+use std::{
+    ops::Deref,
+    sync::{atomic::AtomicUsize, Arc},
+};
 
 use super::{message, Machine, Shop};
 
@@ -103,20 +106,16 @@ where
     ) -> Result<(), crate::CoffeeShopError> {
         // Fetch the next ticket from the SQS queue.
         let receipt: helpers::sqs::StagedReceipt<Q, I> =
-            helpers::sqs::retrieve_ticket(&self.shop.sqs_queue, &self.shop.aws_config, timeout)
-                .await?;
+            helpers::sqs::retrieve_ticket(self.shop.deref(), timeout).await?;
 
         // Process the ticket.
         let process_result = self.process_ticket(&receipt).await;
 
         // Send the result to DynamoDB.
         helpers::dynamodb::put_item(
-            &self.shop.dynamodb_table,
-            &self.shop.config.dynamodb_partition_key,
-            &self.shop.aws_config,
+            self.shop.deref(),
             &receipt.ticket,
             process_result,
-            &self.shop.config.dynamodb_ttl(),
             &self.shop.temp_dir,
         )
         .await?;
