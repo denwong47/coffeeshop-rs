@@ -4,6 +4,8 @@ use super::{message, Machine, Shop};
 
 use crate::{helpers, CoffeeShopError};
 
+const LOG_TARGET: &str = "coffeeshop::models::barista";
+
 /// A [`Barista`] instance that acts as a worker for the shop.
 ///
 /// A shop can have any positive number of [`Barista`] instances; they are responsible
@@ -31,7 +33,7 @@ impl<Q, I, O, F> Barista<Q, I, O, F>
 where
     Q: message::QueryType,
     I: serde::de::DeserializeOwned + serde::Serialize,
-    O: serde::Serialize + serde::de::DeserializeOwned,
+    O: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
     /// Create a new [`Barista`] instance.
@@ -46,6 +48,32 @@ where
     pub fn get_process_count(&self) -> usize {
         self.process_count
             .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Ask the [`Barista`] to start serving.
+    ///
+    /// This function never returns, and will loop indefinitely until the
+    /// program is terminated.
+    pub async fn serve(&self, timeout: Option<tokio::time::Duration>) {
+        loop {
+            crate::info!(
+                target: LOG_TARGET,
+                "A Barista is waiting for the next ticket...",
+            );
+            match self.process_next_ticket(timeout).await {
+                Ok(_) => (),
+                Err(crate::CoffeeShopError::AWSSQSQueueEmpty(duration)) => crate::info!(
+                    target: LOG_TARGET,
+                    "No tickets in the queue after {duration:?}; trying again.",
+                    duration = duration,
+                ),
+                Err(err) => crate::error!(
+                    target: LOG_TARGET,
+                    "Error processing ticket: {error}",
+                    error = err,
+                ),
+            }
+        }
     }
 
     /// Process a ticket from the SQS queue.
@@ -79,8 +107,24 @@ where
         let process_result = self.process_ticket(&receipt).await;
 
         // Send the result to DynamoDB.
-        todo!();
+        helpers::dynamodb::put_item(
+            &self.shop.dynamodb_table,
+            &self.shop.config.dynamodb_partition_key,
+            &self.shop.aws_config,
+            &receipt.ticket,
+            process_result,
+            &self.shop.config.dynamodb_ttl(),
+            &self.shop.temp_dir,
+        )
+        .await?;
+
+        crate::info!(
+            target: LOG_TARGET,
+            "Successfully processed ticket {ticket}.",
+            ticket=&receipt.ticket,
+        );
 
         // Send the multicast message to all the waiters.
+        todo!()
     }
 }
