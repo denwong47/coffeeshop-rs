@@ -36,16 +36,6 @@ jobs:
       with:
         fetch-depth: 1
         submodules: true
-    - uses: actions/cache@v4
-      name: Cache Cargo build targets
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - uses: hecrj/setup-rust-action@v2
     - name: Install protoc
       uses: taiki-e/install-action@v2
