@@ -3,13 +3,10 @@
 //! For synchronous requests, the waiter will also asynchronously await a [`Notify`](tokio::sync::Notify)
 //! event from the multicast channel and report back to the client when the request had been processed.
 
-#![allow(unused_variables)]
-
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use tokio::sync::Notify;
 
 use axum::extract::{Json, Query};
 use axum::{
@@ -19,9 +16,12 @@ use axum::{
 
 use super::{
     message::{self, QueryType},
-    Machine, Shop, Ticket,
+    Machine, Order, Shop,
 };
-use crate::CoffeeShopError;
+use crate::{helpers, CoffeeShopError};
+
+/// The maximum timeout for a waiter to wait for a ticket to be processed.
+const MAX_WAITER_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(24 * 60 * 60);
 
 /// A [`Waiter`] instance that acts as an async REST API host.
 #[derive(Debug)]
@@ -63,7 +63,7 @@ where
             Json(message::StatusResponse {
                 metadata: message::ResponseMetadata::new(&self.start_time),
                 request_count: self.request_count.load(Ordering::Relaxed),
-                ticket_count: self.shop.tickets.read().await.len(),
+                ticket_count: self.shop.orders.read().await.len(),
             }),
         )
     }
@@ -78,11 +78,6 @@ where
 
         self.create_and_retrieve_ticket(message::CombinedInput::new(params, Some(payload)), timeout)
             .await
-            .map(|(ticket, output)| message::OutputResponse {
-                ticket,
-                metadata: message::ResponseMetadata::new(&self.start_time),
-                output,
-            })
     }
 
     /// `POST` Handler for asynchronous requests.
@@ -94,7 +89,7 @@ where
         Query(params): Query<Q>,
         Json(payload): Json<I>,
     ) -> impl IntoResponse {
-        self.create_ticket(message::CombinedInput {
+        self.create_order(message::CombinedInput {
             query: params,
             input: Some(payload),
         })
@@ -112,50 +107,74 @@ where
     ) -> impl IntoResponse {
         let timeout = params.get_timeout();
 
-        self.retrieve_ticket_timeout(params.ticket, timeout)
+        self.retrieve_order_with_timeout(params.ticket, timeout)
             .await
-            .map(|(ticket, output)| message::OutputResponse {
-                ticket,
-                metadata: message::ResponseMetadata::new(&self.start_time),
-                output,
-            })
     }
 
     /// An internal method to create a new ticket on the AWS SQS queue,
-    /// then return the [`Notify`] instance to await the result.
-    async fn create_ticket(
+    /// then return the [`Order`] instance to await the result.
+    async fn create_order(
         &self,
         input: message::CombinedInput<Q, I>,
-    ) -> Result<(message::Ticket, Arc<Notify>), CoffeeShopError> {
+    ) -> Result<(message::Ticket, Arc<Order<O>>), CoffeeShopError> {
         self.request_count.fetch_add(1, Ordering::Relaxed);
 
-        todo!()
+        let ticket = helpers::sqs::put_ticket(
+            &self.shop.sqs_queue,
+            &self.shop.aws_config,
+            input,
+            &self.shop.temp_dir,
+        )
+        .await?;
+
+        Ok((ticket.clone(), self.shop.spawn_order(ticket).await))
     }
 
     /// An internal method to retrieve the result of a ticket from the
     /// AWS SQS queue.
-    async fn retrieve_ticket(&self, ticket: String) -> Result<(Ticket, O), CoffeeShopError> {
-        todo!()
+    async fn retrieve_order<'o>(&self, ticket: String) -> axum::response::Response {
+        let start_time = self.start_time;
+
+        let order = self
+            .shop
+            .orders
+            .read()
+            .await
+            .get(&ticket)
+            .ok_or_else(|| CoffeeShopError::TicketNotFound(ticket.clone()))
+            .map(Arc::clone);
+
+        if let Err(err) = order {
+            return err.into_response();
+        }
+
+        let order = order.unwrap();
+
+        order
+            .wait_until_complete()
+            .await
+            .map(|output| message::OutputResponse::new(ticket, output, &start_time))
+            .into_response()
     }
 
     /// An internal method to retrieve the result of a ticket with a timeout;
     /// if the timeout is reached, an [`CoffeeShopError::RetrieveTimeout`] is returned.
-    async fn retrieve_ticket_timeout(
+    async fn retrieve_order_with_timeout(
         &self,
         ticket: String,
         timeout: Option<tokio::time::Duration>,
-    ) -> Result<(Ticket, O), CoffeeShopError> {
+    ) -> axum::response::Response {
         if let Some(timeout) = timeout {
             tokio::select! {
                 _ = tokio::time::sleep(timeout) => {
-                    Err(CoffeeShopError::RetrieveTimeout(timeout))
+                    Err::<(), _>(CoffeeShopError::RetrieveTimeout(timeout)).into_response()
                 }
-                result = self.retrieve_ticket(ticket) => {
+                result = self.retrieve_order(ticket) => {
                     result
                 }
             }
         } else {
-            self.retrieve_ticket(ticket).await
+            self.retrieve_order(ticket).await
         }
     }
 
@@ -165,25 +184,25 @@ where
         &self,
         input: message::CombinedInput<Q, I>,
         timeout: Option<tokio::time::Duration>,
-    ) -> Result<(Ticket, O), CoffeeShopError> {
-        let (ticket, notify) = self.create_ticket(input).await?;
+    ) -> axum::response::Response {
+        match self.create_order(input).await {
+            Ok((ticket, order)) => {
+                let timeout = timeout.unwrap_or(MAX_WAITER_TIMEOUT);
 
-        if let Some(timeout) = timeout {
-            tokio::select! {
-                _ = notify.notified() => {
-                    // We can take a bit of risk here given that we already know that
-                    // the notification had been received.
-                    self.retrieve_ticket(ticket).await
-                }
-                _ = tokio::time::sleep(timeout) => {
-                    Err(CoffeeShopError::RetrieveTimeout(timeout))
+                tokio::select! {
+                    result = order.wait_until_complete() => result.map(
+                        |output| message::OutputResponse::new(
+                            ticket,
+                            output,
+                            &self.start_time,
+                        )
+                    ).into_response(),
+                    _ = tokio::time::sleep(timeout) => {
+                        Err::<(), _>(CoffeeShopError::RetrieveTimeout(timeout)).into_response()
+                    }
                 }
             }
-        } else {
-            // No timeout.
-            // Theoretically this is supported, but its a good idea to enforce a timeout.
-            notify.notified().await;
-            self.retrieve_ticket(ticket).await
+            Err(err) => err.into_response(),
         }
     }
 }

@@ -3,6 +3,11 @@ use thiserror::Error;
 
 use std::net::IpAddr;
 
+#[cfg(doc)]
+use crate::models::{Barista, Waiter};
+
+use crate::models::Ticket;
+
 /// Re-exports necessary for the error handling of SQS SDK.
 mod sqs {
     pub const DEFAULT_ERROR_MESSAGE: &str = "(No details provided)";
@@ -11,10 +16,14 @@ mod sqs {
     pub use aws_sdk_sqs::types::error::*;
 }
 
-/// The error type for the Coffee Shop crate.
+/// The error type for exporting any error that occurs in this crate.
+///
+/// Since the [`Barista`]s have to serialize any errors to DynamoDB before a
+/// [`Waiter`] can retrieve it, we need a standardised error type to ensure
+/// that the errors can be logically
 #[non_exhaustive]
 #[derive(Error, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CoffeeMachineError {
+pub struct ErrorSchema {
     /// The HTTP status code to send to the client in the response.
     #[serde(with = "http_serde::status_code")]
     status_code: http::StatusCode,
@@ -33,8 +42,13 @@ pub struct CoffeeMachineError {
     details: Option<serde_json::Value>,
 }
 
-impl CoffeeMachineError {
-    /// Create a new instance of [`CoffeeMachineError`].
+/// The error type for the Coffee Machine.
+///
+/// This is for downstream implementers to use as the error type for their Coffee Machine.
+pub type CoffeeMachineError = ErrorSchema;
+
+impl ErrorSchema {
+    /// Create a new instance of [`ErrorSchema`].
     pub fn new(
         status_code: http::StatusCode,
         error: String,
@@ -48,7 +62,24 @@ impl CoffeeMachineError {
     }
 }
 
-impl std::fmt::Display for CoffeeMachineError {
+impl IntoResponse for ErrorSchema {
+    fn into_response(self) -> axum::response::Response<Body> {
+        (
+            self.status_code,
+            [
+                (http::header::CONTENT_TYPE, "application/json"),
+                (http::header::CACHE_CONTROL, "no-store"),
+            ],
+            Json(serde_json::to_value(&self).expect(
+                // Potentially unsafe! This should however be unreachable.
+                "Failed to serialize the `ErrorSchema` into JSON for the response. This should not be possible; please check your error type definition.",
+            )),
+        )
+            .into_response()
+    }
+}
+
+impl std::fmt::Display for ErrorSchema {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -103,7 +134,7 @@ pub enum CoffeeShopError {
     IOError(std::io::ErrorKind, std::io::Error),
 
     #[error("Timed out awaiting results after {0:?} seconds")]
-    RetrieveTimeout(std::time::Duration),
+    RetrieveTimeout(tokio::time::Duration),
 
     #[error("An error relating to AWS IAM credentials occurred: {0}")]
     AWSCredentialsError(String),
@@ -137,6 +168,15 @@ pub enum CoffeeShopError {
 
     #[error("Error during processing: {0}")]
     ProcessingError(#[from] CoffeeMachineError),
+
+    #[error("Result is already set, cannot set again.")]
+    ResultAlreadySet,
+
+    #[error("The ticket {0} was not found.")]
+    TicketNotFound(Ticket),
+
+    #[error("Upstream worker reported an error: {0:?}")]
+    ErrorSchema(ErrorSchema),
 }
 
 impl CoffeeShopError {
@@ -195,9 +235,8 @@ impl CoffeeShopError {
             CoffeeShopError::InvalidMulticastMessage { .. } => http::StatusCode::BAD_REQUEST,
             CoffeeShopError::RetrieveTimeout(_) => http::StatusCode::REQUEST_TIMEOUT,
             CoffeeShopError::Base64EncodingOversize(_) => http::StatusCode::PAYLOAD_TOO_LARGE,
-            CoffeeShopError::ProcessingError(CoffeeMachineError { status_code, .. }) => {
-                *status_code
-            }
+            CoffeeShopError::ProcessingError(ErrorSchema { status_code, .. }) => *status_code,
+            CoffeeShopError::ErrorSchema(ErrorSchema { status_code, .. }) => *status_code,
             _ => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -210,16 +249,26 @@ impl CoffeeShopError {
     /// Converts the error into a JSON object.
     pub fn as_json(&self) -> serde_json::Value {
         match self {
-            // Potentiall unsafe!
+            // Potentially unsafe! However it's best for the downstream maintainer to know
+            // about this rather than silently failing.
             Self::ProcessingError(err) => serde_json::to_value(err).expect(
                 "Failed to serialize the `CoffeeMachineError` into JSON for the response. Please check your error type definition.",
             ),
-            _ => serde_json::json!({
-                "error": self.kind(),
-                "details": {
-                    "message": self.to_string(),
-                },
-            })
+            Self::ErrorSchema(err) => serde_json::to_value(err).expect(
+                "Failed to serialize the `ErrorSchema` into JSON for the response. Please check your error type definition.",
+            ),
+            _ => serde_json::to_value(
+                ErrorSchema::new(
+                    self.status_code(),
+                    self.kind().to_string(),
+                    Some(serde_json::json!({
+                        "message": self.to_string(),
+                    })),
+                )
+            // Potentially unsafe! This should however be unreachable.
+            ).unwrap_or_else(|_| panic!("A default {kind} error could not be serialized into JSON: {err:?}. Please notify the maintainers.",
+                    kind = self.kind(),
+                    err = &self))
         }
     }
 }

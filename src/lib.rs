@@ -6,7 +6,7 @@
 //! - Waiter - The Axum HTTP host serving incoming requests. The requests are then put
 //!   into an AWS SQS standard queue, which will then
 
-mod errors;
+pub mod errors;
 pub use errors::{CoffeeMachineError, CoffeeShopError};
 
 pub mod helpers;

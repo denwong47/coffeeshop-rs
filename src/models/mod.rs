@@ -10,11 +10,16 @@
 //! - [`Ticket`]: The request that is sent to the shop to be processed.
 //! - [`MulticastMessage`]: The gRPC message struct that is sent to all waiters
 //!   in the same cluster to notify them of a finished ticket.
+//! - [`Order`]: The struct that contains the processed ticket and the waiter
+//!   notification.
 //! - [`message`]: The module that contains the request and response structs for
 //!   internal communication.
 
 mod barista;
 pub use barista::Barista;
+
+mod order;
+pub use order::Order;
 
 mod shop;
 pub use shop::Shop;

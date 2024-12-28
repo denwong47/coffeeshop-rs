@@ -1,11 +1,9 @@
-#![allow(dead_code)]
-
 use hashbrown::HashMap;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{marker::PhantomData, sync::Arc};
-use tokio::sync::{Notify, RwLock};
+use tokio::sync::RwLock;
 
-use super::{message, Machine};
+use super::{message, Machine, Order, Ticket};
 use crate::{cli::Config, helpers, CoffeeShopError};
 
 /// The default prefix for dynamodb table.
@@ -66,7 +64,7 @@ where
 
     /// A map of tickets to their respective [`Notify`] events that are used to notify the
     /// waiter when a ticket is ready.
-    pub tickets: RwLock<HashMap<String, Notify>>,
+    pub orders: RwLock<HashMap<String, Arc<Order<O>>>>,
 
     /// The coffee machine that will process tickets.
     ///
@@ -91,7 +89,7 @@ where
     pub aws_config: helpers::aws::SdkConfig,
 
     /// Temporary Directory for serialization and deserialization.
-    temp_dir: tempfile::TempDir,
+    pub(crate) temp_dir: tempfile::TempDir,
 
     /// Phantom data to attach the input and output types to the shop.
     _phantom: PhantomData<(Q, I, O)>,
@@ -131,7 +129,7 @@ where
 
         Ok(Arc::new(Self {
             name,
-            tickets: HashMap::new().into(),
+            orders: HashMap::new().into(),
             coffee_machine,
             dynamodb_table,
             sqs_queue,
@@ -148,5 +146,18 @@ where
         helpers::sts::report_aws_login(Some(&self.aws_config)).await?;
 
         unimplemented!()
+    }
+
+    /// Spawn a [`Order`] order for a given [`Ticket`] in the shop.
+    ///
+    /// Get the ticket if it exists, otherwise create a new one
+    /// before returning the [`Arc`] reference to the [`Order`].
+    pub async fn spawn_order(&self, ticket: Ticket) -> Arc<Order<O>> {
+        self.orders
+            .write()
+            .await
+            .entry(ticket)
+            .or_insert_with_key(|_| Arc::new(Order::new()))
+            .clone()
     }
 }

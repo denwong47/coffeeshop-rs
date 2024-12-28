@@ -4,16 +4,30 @@ use super::{ResponseMetadata, Ticket};
 
 /// Response message for the output of a request.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct OutputResponse<O>
+pub struct OutputResponse<'o, O>
 where
     O: serde::Serialize,
 {
     pub ticket: Ticket,
     pub metadata: ResponseMetadata,
-    pub output: O,
+    pub output: &'o O,
 }
 
-impl<O> IntoResponse for OutputResponse<O>
+impl<'o, O> OutputResponse<'o, O>
+where
+    O: serde::Serialize,
+{
+    /// Create a new [`OutputResponse`] instance.
+    pub fn new(ticket: Ticket, output: &'o O, start_time: &tokio::time::Instant) -> Self {
+        Self {
+            ticket,
+            metadata: ResponseMetadata::new(start_time),
+            output,
+        }
+    }
+}
+
+impl<O> IntoResponse for OutputResponse<'_, O>
 where
     O: serde::Serialize,
 {
