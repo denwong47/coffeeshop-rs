@@ -3,7 +3,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::{marker::PhantomData, sync::Arc};
 use tokio::sync::RwLock;
 
-use super::{message, Machine, Order, Ticket};
+use super::{message, Machine, Order, Orders, Ticket};
 use crate::{cli::Config, helpers, CoffeeShopError};
 
 /// The default prefix for dynamodb table.
@@ -64,7 +64,7 @@ where
 
     /// A map of tickets to their respective [`Notify`] events that are used to notify the
     /// waiter when a ticket is ready.
-    pub orders: RwLock<HashMap<String, Arc<Order<O>>>>,
+    pub orders: RwLock<Orders<O>>,
 
     /// The coffee machine that will process tickets.
     ///
