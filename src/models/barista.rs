@@ -6,6 +6,9 @@ use crate::{helpers, CoffeeShopError};
 
 const LOG_TARGET: &str = "coffeeshop::models::barista";
 
+#[cfg(doc)]
+use crate::models::Ticket;
+
 /// A [`Barista`] instance that acts as a worker for the shop.
 ///
 /// A shop can have any positive number of [`Barista`] instances; they are responsible
