@@ -115,6 +115,9 @@ pub enum CoffeeShopError {
     #[error("Could not compress/decompress the payload: {0}")]
     ResultBinaryCompressionError(#[from] gzp::GzpError),
 
+    #[error("Temporary directory could not be created: {0}")]
+    TempDirCreationFailure(String),
+
     #[error("Temporary file access failure at {path}: {reason}")]
     TempFileAccessFailure {
         path: std::path::PathBuf,

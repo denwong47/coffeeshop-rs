@@ -158,6 +158,30 @@ impl Config {
             Ok(self)
         }
     }
+
+    /// Builder pattern - change the DynamoDB configuration.
+    pub fn with_dynamodb_table(mut self, table: &str) -> Self {
+        self.dynamodb_table = Some(table.to_owned());
+        self
+    }
+
+    /// Builder pattern - change the DynamoDB partition key.
+    pub fn with_dynamodb_partition_key(mut self, key: &str) -> Self {
+        self.dynamodb_partition_key = key.to_owned();
+        self
+    }
+
+    /// Builder pattern - change the result TTL.
+    pub fn with_result_ttl(mut self, ttl: f32) -> Self {
+        self.result_ttl = ttl;
+        self
+    }
+
+    /// Builder pattern - change the SQS queue URL.
+    pub fn with_sqs_queue(mut self, queue: String) -> Self {
+        self.sqs_queue = Some(queue);
+        self
+    }
 }
 
 impl Config {

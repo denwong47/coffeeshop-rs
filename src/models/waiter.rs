@@ -7,7 +7,7 @@ use std::{
     ops::Deref,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Weak,
     },
 };
 
@@ -23,8 +23,7 @@ use super::{
 };
 use crate::{helpers, CoffeeShopError};
 
-/// The maximum timeout for a waiter to wait for a ticket to be processed.
-const MAX_WAITER_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(24 * 60 * 60);
+const LOG_TARGET: &str = "coffeeshop::models::waiter";
 
 /// A [`Waiter`] instance that acts as an async REST API host.
 #[derive(Debug)]
@@ -36,7 +35,7 @@ where
     F: Machine<Q, I, O>,
 {
     /// The back reference to the shop that this waiter is serving.
-    pub shop: Arc<Shop<Q, I, O, F>>,
+    pub shop: Weak<Shop<Q, I, O, F>>,
 
     /// The total amount of historical requests processed.
     /// Only the [`request`](Self::request) and [`async_request`](Self::async_request) methods
@@ -54,6 +53,20 @@ where
     O: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
+    /// Create a new [`Waiter`] instance.
+    pub fn new(shop: Weak<Shop<Q, I, O, F>>) -> Self {
+        Self {
+            shop,
+            request_count: Arc::new(AtomicUsize::new(0)),
+            start_time: tokio::time::Instant::now(),
+        }
+    }
+
+    /// Get a reference to the shop that this waiter is serving.
+    pub fn shop(&self) -> Arc<Shop<Q, I, O, F>> {
+        self.shop.upgrade().expect("Shop has been dropped; this should not be possible in normal use. Please report this to the maintainer.")
+    }
+
     /// `GET` Handler for getting the status of the waiter.
     pub async fn status(&self) -> impl IntoResponse {
         (
@@ -65,7 +78,7 @@ where
             Json(message::StatusResponse {
                 metadata: message::ResponseMetadata::new(&self.start_time),
                 request_count: self.request_count.load(Ordering::Relaxed),
-                ticket_count: self.shop.orders.read().await.len(),
+                ticket_count: self.shop().orders.read().await.len(),
             }),
         )
     }
@@ -78,7 +91,7 @@ where
     ) -> impl IntoResponse {
         let timeout = params.get_timeout();
 
-        self.create_and_retrieve_ticket(message::CombinedInput::new(params, Some(payload)), timeout)
+        self.create_and_retrieve_order(message::CombinedInput::new(params, Some(payload)), timeout)
             .await
     }
 
@@ -115,25 +128,27 @@ where
 
     /// An internal method to create a new ticket on the AWS SQS queue,
     /// then return the [`Order`] instance to await the result.
-    async fn create_order(
+    pub async fn create_order(
         &self,
         input: message::CombinedInput<Q, I>,
     ) -> Result<(message::Ticket, Arc<Order>), CoffeeShopError> {
         self.request_count.fetch_add(1, Ordering::Relaxed);
 
-        let ticket =
-            helpers::sqs::put_ticket(self.shop.deref(), input, &self.shop.temp_dir).await?;
+        let shop = self.shop();
 
-        Ok((ticket.clone(), self.shop.spawn_order(ticket).await))
+        let ticket = helpers::sqs::put_ticket(shop.deref(), input, &shop.temp_dir).await?;
+
+        Ok((ticket.clone(), shop.spawn_order(ticket).await))
     }
 
     /// An internal method to retrieve the result of a ticket from the
     /// AWS SQS queue.
-    async fn retrieve_order<'o>(&self, ticket: String) -> axum::response::Response {
+    pub async fn retrieve_order<'o>(&self, ticket: String) -> axum::response::Response {
         let start_time = self.start_time;
 
-        let order = self
-            .shop
+        let shop = self.shop();
+
+        let order = shop
             .orders
             .read()
             .await
@@ -141,14 +156,23 @@ where
             .ok_or_else(|| CoffeeShopError::TicketNotFound(ticket.clone()))
             .map(Arc::clone);
 
+        dbg!(&order);
+
         if let Err(err) = order {
             return err.into_response();
         }
 
         let order = order.unwrap();
 
+        crate::info!(
+            target: LOG_TARGET,
+            "Waiting for order {} to complete...",
+            ticket
+        );
+
+        // Wait for the order to complete.
         order
-            .wait_until_complete::<O, _>(self.shop.deref())
+            .wait_until_complete::<O, _>(shop.deref())
             .await
             .map(|result| {
                 result.map(|output| {
@@ -162,7 +186,7 @@ where
 
     /// An internal method to retrieve the result of a ticket with a timeout;
     /// if the timeout is reached, an [`CoffeeShopError::RetrieveTimeout`] is returned.
-    async fn retrieve_order_with_timeout(
+    pub async fn retrieve_order_with_timeout(
         &self,
         ticket: String,
         timeout: Option<tokio::time::Duration>,
@@ -183,32 +207,16 @@ where
 
     /// An internal method to create a new ticket, wait for the result,
     /// then return the result to the client.
-    async fn create_and_retrieve_ticket(
+    ///
+    /// The `timeout` parameter is used to set a timeout for the processing and
+    /// retrieval of the ticket only; the creation of the ticket is not affected.
+    pub async fn create_and_retrieve_order(
         &self,
         input: message::CombinedInput<Q, I>,
         timeout: Option<tokio::time::Duration>,
     ) -> axum::response::Response {
         match self.create_order(input).await {
-            Ok((ticket, order)) => {
-                let timeout = timeout.unwrap_or(MAX_WAITER_TIMEOUT);
-
-                tokio::select! {
-                    result = order.wait_until_complete::<O, _>(self.shop.deref()) => result.map(
-                        |result| result.map(
-                            // Use the `OutputResponse` to create a response.
-                            |output| message::OutputResponse::new(
-                                ticket,
-                                &output,
-                                &self.start_time,
-                            ).into_response()
-                        )
-                    // Convert any remaining errors into responses.
-                    ).into_response(),
-                    _ = tokio::time::sleep(timeout) => {
-                        Err::<(), _>(CoffeeShopError::RetrieveTimeout(timeout)).into_response()
-                    }
-                }
-            }
+            Ok((ticket, _order)) => self.retrieve_order_with_timeout(ticket, timeout).await,
             Err(err) => err.into_response(),
         }
     }

@@ -3,45 +3,15 @@ use crate::{
     helpers::aws::{self, HasAWSSdkConfig},
     models::{
         message::{ProcessResult, ProcessResultExport},
+        test::*,
         Ticket,
     },
     CoffeeMachineError, CoffeeShopError,
 };
 use axum::http;
-use serde::{Deserialize, Serialize};
 
 const TTL: tokio::time::Duration = tokio::time::Duration::from_secs(20);
 const PARTITION_KEY: &str = "identifier";
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TestResult {
-    first_name: String,
-    last_name: String,
-    age: u8,
-}
-
-/// Get the queue URL from the environment variables.
-///
-/// In order for this test to run, the environment variable `TEST_QUEUE_URL` must be set to
-/// the URL of the queue to test on.
-///
-/// # Warning
-///
-/// The queue will be purged multiple times during the test, so make sure that the queue is
-/// not used for other purposes.
-fn get_dynamodb_table() -> String {
-    std::env::var("TEST_DYNAMODB_TABLE")
-        .expect("TEST_DYNAMODB_TABLE not set; please set it in the environment variables.")
-}
-
-/// Generate a random [`Ticket`].
-///
-/// This is useful because these tests do not actually involve SQS, which is normally where
-/// the tickets are generated.
-fn get_random_ticket() -> Ticket {
-    uuid::Uuid::new_v4().to_string()
-}
 
 /// Convenience function to get the statics for the test.
 async fn get_statics() -> (DynamoDBConfiguration, Ticket, tempfile::TempDir) {
@@ -127,9 +97,8 @@ mod put_items {
     }
 
     create_test!(success(ProcessResult::<TestResult>::Ok(TestResult {
-        first_name: "Big".to_string(),
-        last_name: "Dave".to_string(),
-        age: 42,
+        greetings: "Hello, world!".to_owned(),
+        narration: "A test had made a greeting.".to_owned(),
     })));
 
     create_test!(failure_host(ProcessResult::<TestResult>::Err(
@@ -197,9 +166,8 @@ mod process_result_to_and_from_item {
     }
 
     create_test!(success(ProcessResult::Ok(TestResult {
-        first_name: "Big".to_string(),
-        last_name: "Dave".to_string(),
-        age: 42,
+        greetings: "Hello, world!".to_owned(),
+        narration: "A test had made a greeting.".to_owned(),
     })));
 
     create_test!(failure_host(ProcessResult::<TestResult>::Err(

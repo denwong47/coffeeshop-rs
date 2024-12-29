@@ -1,5 +1,9 @@
 use super::*;
-use crate::{helpers::aws, models::message, CoffeeShopError};
+use crate::{
+    helpers::aws,
+    models::{message, test::*},
+    CoffeeShopError,
+};
 
 /// Test if the `put_ticket` function works as expected.
 ///
@@ -9,50 +13,10 @@ use crate::{helpers::aws, models::message, CoffeeShopError};
 /// **They cannot be re-ordered.**
 mod full_workflow {
     use super::*;
-    use serde::{Deserialize, Serialize};
 
     const LOG_TARGET: &str = "coffeeshop::helpers::sqs::tests::full_workflow";
 
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-    enum TestStatus {
-        Eat,
-        Sleep,
-        Work,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-    struct TestQuery {
-        name: String,
-        timeout: Option<tokio::time::Duration>,
-    }
-
-    impl message::QueryType for TestQuery {
-        fn get_timeout(&self) -> Option<tokio::time::Duration> {
-            self.timeout
-        }
-    }
-
-    #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-    struct TestPayload {
-        action: TestStatus,
-        duration: f64,
-    }
-
     const TIMEOUT: Option<tokio::time::Duration> = Some(tokio::time::Duration::from_secs(20));
-
-    /// Get the queue URL from the environment variables.
-    ///
-    /// In order for this test to run, the environment variable `TEST_QUEUE_URL` must be set to
-    /// the URL of the queue to test on.
-    ///
-    /// # Warning
-    ///
-    /// The queue will be purged multiple times during the test, so make sure that the queue is
-    /// not used for other purposes.
-    fn get_queue_url() -> String {
-        std::env::var("TEST_QUEUE_URL")
-            .expect("TEST_QUEUE_URL not set; please set it in the environment variables.")
-    }
 
     /// Convenience function to get the statics for the test.
     async fn get_statics() -> (SQSConfiguration, tempfile::TempDir) {
@@ -72,7 +36,7 @@ mod full_workflow {
         )
     }
 
-    #[serial_test::serial(sqs_test_queue)]
+    #[serial_test::serial(uses_sqs)]
     #[tokio::test]
     #[cfg(feature = "test_on_aws")]
     async fn get_from_empty_queue() {
@@ -96,7 +60,7 @@ mod full_workflow {
             result = retrieve_ticket::<TestQuery, TestPayload>(&config, Some(tokio::time::Duration::from_secs(1))) => {
                 match result {
                     Ok(receipt) => {
-                        crate::warn!(target: LOG_TARGET, "Received unexpected ticket!");
+                        crate::warn!(target: LOG_TARGET, "Received unexpected ticket! Are there other concurrent tests interfering with this one?");
                         receipt.delete().await.expect("Failed to delete the unexpected ticket.");
 
                         false
@@ -123,7 +87,7 @@ mod full_workflow {
         );
     }
 
-    #[serial_test::serial(sqs_test_queue)]
+    #[serial_test::serial(uses_sqs)]
     #[tokio::test]
     #[cfg(feature = "test_on_aws")]
     async fn put_and_delete_ticket() {
@@ -195,7 +159,7 @@ mod full_workflow {
         }
     }
 
-    #[serial_test::serial(sqs_test_queue)]
+    #[serial_test::serial(uses_sqs)]
     #[tokio::test]
     #[cfg(feature = "test_on_aws")]
     async fn put_and_abort_ticket() {

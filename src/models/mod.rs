@@ -35,3 +35,6 @@ pub use waiter::*;
 
 pub mod message;
 pub use message::Ticket;
+
+#[cfg(test)]
+pub(crate) mod test;

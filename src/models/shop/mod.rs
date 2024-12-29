@@ -5,3 +5,6 @@ pub use base::*;
 
 mod implementations;
 pub use implementations::*;
+
+#[cfg(test)]
+mod tests;

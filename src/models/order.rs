@@ -57,13 +57,13 @@ impl Order {
     /// Complete the ticket with the result and the timestamp.
     pub fn complete_with_timestamp(
         &self,
-        status: bool,
+        success: bool,
         timestamp: tokio::time::Instant,
     ) -> Result<(), CoffeeShopError> {
         // Set the results first, then notify the waiters.
         self.result
             // Add the timestamp to the result.
-            .set((timestamp, status))
+            .set((timestamp, success))
             .map_err(|_| CoffeeShopError::ResultAlreadySet)?;
         self.notify.notify_waiters();
 
@@ -71,8 +71,8 @@ impl Order {
     }
 
     /// Notify the waiter that the ticket is ready.
-    pub fn complete(&self, status: bool) -> Result<(), CoffeeShopError> {
-        self.complete_with_timestamp(status, tokio::time::Instant::now())
+    pub fn complete(&self, success: bool) -> Result<(), CoffeeShopError> {
+        self.complete_with_timestamp(success, tokio::time::Instant::now())
     }
 
     /// Check if this result is fulfilled.
@@ -123,7 +123,7 @@ impl Order {
             if let Some((_, status)) = self.result() {
                 crate::info!(
                     target: LOG_TARGET,
-                    "Ticket {ticket} is ready, status: {status}.",
+                    "Ticket {ticket} is ready, status: {status}. Fetching the result from DynamoDB...",
                     ticket = self.ticket,
                     status = status,
                 );

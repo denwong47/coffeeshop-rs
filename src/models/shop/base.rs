@@ -3,7 +3,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::{marker::PhantomData, sync::Arc};
 use tokio::sync::RwLock;
 
-use super::super::{message, Machine, Order, Orders, Ticket};
+use super::super::{message, Barista, Machine, Order, Orders, Ticket, Waiter};
 use crate::{cli::Config, helpers, CoffeeShopError};
 
 /// The default prefix for dynamodb table.
@@ -91,6 +91,12 @@ where
     /// Temporary Directory for serialization and deserialization.
     pub(crate) temp_dir: tempfile::TempDir,
 
+    /// Reference to the waiter that will serve incoming requests.
+    pub waiter: Waiter<Q, I, O, F>,
+
+    /// Reference to the baristas that will process the tickets.
+    pub baristas: Vec<Barista<Q, I, O, F>>,
+
     /// Phantom data to attach the input and output types to the shop.
     _phantom: PhantomData<(Q, I, O)>,
 }
@@ -108,6 +114,7 @@ where
         coffee_machine: F,
         mut config: Config,
         aws_config: Option<helpers::aws::SdkConfig>,
+        barista_count: usize,
     ) -> Result<Arc<Self>, CoffeeShopError> {
         // If the table has not been set, use the default table name with the prefix.
         // Otherwise, remove the name from `config` and put it into the [`Shop`].
@@ -127,7 +134,9 @@ where
             helpers::aws::get_aws_config().await?
         };
 
-        Ok(Arc::new(Self {
+        let temp_dir = tempfile::TempDir::new()
+            .map_err(|err| CoffeeShopError::TempDirCreationFailure(err.to_string()))?;
+        Ok(Arc::new_cyclic(|me| Self {
             name,
             orders: HashMap::new().into(),
             coffee_machine,
@@ -135,7 +144,11 @@ where
             sqs_queue,
             config,
             aws_config,
-            temp_dir: tempfile::tempdir().map_err(CoffeeShopError::from_io_error)?,
+            temp_dir,
+            waiter: Waiter::new(me.clone()),
+            baristas: (0..barista_count)
+                .map(|_| Barista::new(me.clone()))
+                .collect::<Vec<Barista<Q, I, O, F>>>(),
             _phantom: PhantomData,
         }))
     }

@@ -84,7 +84,29 @@ where
                 CoffeeShopError::UnexpectedAWSResponse("Missing SQS message ID".to_string())
             })?;
 
-            let message = deserialize(encoding::decode(&body).await?)?;
+            let message =
+                deserialize(encoding::decode(&body).await?)
+                .inspect_err(
+                    |err| {
+                        if let CoffeeShopError::ResultBinaryConversionError(_) = err {
+                            #[cfg(test)]
+                            crate::error!(
+                                target: LOG_TARGET,
+                                "Failed to deserialize the message body of ticket {} from queue {}. If this is not expected, then there could be concurrent tests interfering with each other.",
+                                ticket,
+                                config.sqs_queue_url(),
+                            );
+
+                            #[cfg(not(test))]
+                            crate::error!(
+                                target: LOG_TARGET,
+                                "Failed to deserialize the message body of ticket {} from queue {}. This can be caused by Is the SQS queue exclusively used by this app?",
+                                ticket,
+                                config.sqs_queue_url(),
+                            )
+                        }
+                    }
+                )?;
 
             Ok(Self {
                 client,

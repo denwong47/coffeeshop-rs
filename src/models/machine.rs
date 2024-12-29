@@ -1,5 +1,3 @@
-use std::future::Future;
-
 use super::message;
 
 /// A trait that defines the behavior of a coffee machine, i.e. the function
@@ -15,7 +13,8 @@ use super::message;
 /// To use this trait, you must implement the `Machine` trait for your struct
 /// and define the `call` method, which can be a simple wrapper around an async
 /// function.
-pub trait Machine<Q, I, O>: Clone + Send + Sync + Sized
+#[async_trait::async_trait]
+pub trait Machine<Q, I, O>: Send + Sync + Sized
 where
     Q: message::QueryType,
     I: serde::de::DeserializeOwned + serde::Serialize,
@@ -25,6 +24,5 @@ where
     ///
     /// A [`Machine`] is expected to process the input and return the output; if an error
     /// occurs, it should return a [`CoffeeMachineError`].
-    fn call(&self, query: &Q, input: Option<&I>)
-        -> impl Future<Output = message::MachineResult<O>>;
+    async fn call(&self, query: &Q, input: Option<&I>) -> message::MachineResult<O>;
 }

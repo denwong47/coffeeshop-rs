@@ -1,7 +1,7 @@
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     ops::Deref,
-    sync::{atomic::AtomicUsize, Arc},
+    sync::{atomic::AtomicUsize, Arc, Weak},
 };
 
 use super::{
@@ -25,6 +25,7 @@ use crate::models::Ticket;
 /// They are also responsible for sending a multicast message to all the waiters in
 /// the same cluster (including those in different [`Shop`]s), so that the waiters can
 /// retrieve the results when ready instead of polling the DynamoDB table.
+#[derive(Debug)]
 pub struct Barista<Q, I, O, F>
 where
     Q: message::QueryType,
@@ -33,7 +34,7 @@ where
     F: Machine<Q, I, O>,
 {
     /// A back reference to the shop that this barista is serving.
-    pub shop: Arc<Shop<Q, I, O, F>>,
+    pub shop: Weak<Shop<Q, I, O, F>>,
 
     /// The total amount of historical requests processed.
     pub process_count: AtomicUsize,
@@ -47,11 +48,16 @@ where
     F: Machine<Q, I, O>,
 {
     /// Create a new [`Barista`] instance.
-    pub fn new(shop: Arc<Shop<Q, I, O, F>>) -> Self {
+    pub fn new(shop: Weak<Shop<Q, I, O, F>>) -> Self {
         Self {
             shop,
             process_count: AtomicUsize::new(0),
         }
+    }
+
+    /// Get the back reference to the shop that this barista is serving.
+    pub fn shop(&self) -> Arc<Shop<Q, I, O, F>> {
+        self.shop.upgrade().expect("Shop has been dropped; this should not be possible in normal use. Please report this to the maintainer.")
     }
 
     /// Get the total amount of historical requests processed.
@@ -95,7 +101,7 @@ where
         self.process_count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        self.shop
+        self.shop()
             .coffee_machine
             .call(receipt.query(), receipt.input())
             .await
@@ -108,29 +114,43 @@ where
         &self,
         timeout: Option<tokio::time::Duration>,
     ) -> Result<(), crate::CoffeeShopError> {
+        let shop = self.shop();
+
         // Fetch the next ticket from the SQS queue.
         let receipt: helpers::sqs::StagedReceipt<Q, I> =
-            helpers::sqs::retrieve_ticket(self.shop.deref(), timeout).await?;
+            helpers::sqs::retrieve_ticket(shop.deref(), timeout).await?;
 
-        // Process the ticket.
-        let process_result = self.process_ticket(&receipt).await;
+        let result = async {
+            // Process the ticket.
+            let process_result = self.process_ticket(&receipt).await;
 
-        // Send the result to DynamoDB.
-        helpers::dynamodb::put_process_result(
-            self.shop.deref(),
-            &receipt.ticket,
-            process_result,
-            &self.shop.temp_dir,
-        )
-        .await?;
+            // Send the result to DynamoDB.
+            helpers::dynamodb::put_process_result(
+                shop.deref(),
+                &receipt.ticket,
+                process_result,
+                &shop.temp_dir,
+            )
+            .await?;
 
-        crate::info!(
-            target: LOG_TARGET,
-            "Successfully processed ticket {ticket}.",
-            ticket=&receipt.ticket,
-        );
+            crate::info!(
+                target: LOG_TARGET,
+                "Successfully processed ticket {ticket}.",
+                ticket=&receipt.ticket,
+            );
 
-        // Send the multicast message to all the waiters.
-        todo!()
+            Ok::<_, CoffeeShopError>(())
+        }
+        .await;
+
+        if result.is_ok() {
+            receipt.delete().await?;
+        } else {
+            receipt.abort().await?;
+        }
+
+        // TODO Send the multicast message to all the waiters.
+
+        result
     }
 }
