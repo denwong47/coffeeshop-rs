@@ -1,20 +1,20 @@
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 
 use hashbrown::HashMap;
+use serde::de::DeserializeOwned;
 
-use crate::{errors, CoffeeShopError};
+use crate::{helpers, models::Ticket, CoffeeShopError};
 
 #[cfg(doc)]
 use crate::models::{Barista, Shop, Waiter};
+
+use super::message::ProcessResultExport;
 
 /// The log target for this module.
 const LOG_TARGET: &str = "coffee_shop::models::order";
 
 /// A collection of [`Order`]s that are being processed.
-pub type Orders<O> = HashMap<String, Arc<Order<O>>>;
+pub type Orders = HashMap<String, Arc<Order>>;
 
 /// A [`Delivery`] is a structure that contains:
 /// - [`OnceCell`](tokio::sync::OnceCell) which will be populated with the processed ticket
@@ -24,48 +24,28 @@ pub type Orders<O> = HashMap<String, Arc<Order<O>>>;
 /// The collection point will [push the result](Delivery::complete) into the [`Delivery::result`]
 /// and notify all the interested parties when the ticket is ready.
 #[derive(Debug)]
-pub struct Order<O>
-where
-    O: serde::Serialize + serde::de::DeserializeOwned,
-{
+pub struct Order {
+    ticket: Ticket,
+
     /// The processed ticket result.
-    pub result: tokio::sync::OnceCell<(tokio::time::Instant, Result<O, errors::ErrorSchema>)>,
+    pub result: tokio::sync::OnceCell<(tokio::time::Instant, bool)>,
 
     /// A [`Notify`](tokio::sync::Notify) instance to notify the waiter that the ticket is ready.
     notify: tokio::sync::Notify,
-
-    /// A flag to indicate if the order had been fulfilled with no further
-    /// waiters waiting for the result.
-    ///
-    /// This is not considered accurate because the waiter could have been
-    /// Dropped as part of [`tokio::select`] while waiting for the result.
-    waiters_count: AtomicUsize,
 }
 
-impl<O> Default for Order<O>
-where
-    O: serde::Serialize + serde::de::DeserializeOwned,
-{
-    fn default() -> Self {
+impl Order {
+    /// Create a new [`Delivery`] instance.
+    pub fn new(ticket: Ticket) -> Self {
         Self {
+            ticket,
             result: tokio::sync::OnceCell::new(),
             notify: tokio::sync::Notify::new(),
-            waiters_count: AtomicUsize::new(0),
         }
-    }
-}
-
-impl<O> Order<O>
-where
-    O: serde::Serialize + serde::de::DeserializeOwned,
-{
-    /// Create a new [`Delivery`] instance.
-    pub fn new() -> Self {
-        Default::default()
     }
 
     /// Get the result of the ticket if one is available.
-    pub fn result(&self) -> Option<&(tokio::time::Instant, Result<O, errors::ErrorSchema>)> {
+    pub fn result(&self) -> Option<&(tokio::time::Instant, bool)> {
         self.result.get()
     }
 
@@ -77,13 +57,13 @@ where
     /// Complete the ticket with the result and the timestamp.
     pub fn complete_with_timestamp(
         &self,
-        result: Result<O, errors::ErrorSchema>,
+        status: bool,
         timestamp: tokio::time::Instant,
     ) -> Result<(), CoffeeShopError> {
         // Set the results first, then notify the waiters.
         self.result
             // Add the timestamp to the result.
-            .set((timestamp, result))
+            .set((timestamp, status))
             .map_err(|_| CoffeeShopError::ResultAlreadySet)?;
         self.notify.notify_waiters();
 
@@ -91,8 +71,8 @@ where
     }
 
     /// Notify the waiter that the ticket is ready.
-    pub fn complete(&self, result: Result<O, errors::ErrorSchema>) -> Result<(), CoffeeShopError> {
-        self.complete_with_timestamp(result, tokio::time::Instant::now())
+    pub fn complete(&self, status: bool) -> Result<(), CoffeeShopError> {
+        self.complete_with_timestamp(status, tokio::time::Instant::now())
     }
 
     /// Check if this result is fulfilled.
@@ -118,31 +98,40 @@ where
         matches!((Arc::strong_count(self), self.age_of_result()), (n, Some(age)) if n <= 1 && age > max_age)
     }
 
+    /// Attempt to fetch the process result from the DynamoDB.
+    pub async fn fetch<O, C>(&self, config: &C) -> Result<ProcessResultExport<O>, CoffeeShopError>
+    where
+        O: DeserializeOwned + Send + Sync,
+        C: helpers::dynamodb::HasDynamoDBConfiguration,
+    {
+        helpers::dynamodb::get_process_result_by_ticket(config, &self.ticket).await
+    }
+
     /// Wait indefinitely for the ticket to be ready, and get the result when it is.
     ///
     /// The version of this function with a timeout is implemented as part of [`Shop`].
-    pub async fn wait_until_complete(&self) -> Result<&O, CoffeeShopError> {
+    pub async fn wait_until_complete<O, C>(
+        &self,
+        config: &C,
+    ) -> Result<ProcessResultExport<O>, CoffeeShopError>
+    where
+        O: DeserializeOwned + Send + Sync,
+        C: helpers::dynamodb::HasDynamoDBConfiguration,
+    {
         // Wait until the result is set.
         loop {
-            if let Some((_, result)) = self.result() {
-                let waiters_count = self
-                    .waiters_count
-                    .fetch_sub(1, Ordering::Relaxed)
-                    .saturating_sub(1);
-
+            if let Some((_, status)) = self.result() {
                 crate::info!(
                     target: LOG_TARGET,
-                    "Order is ready with {} waiters still waiting for the results.",
-                    waiters_count
+                    "Ticket {ticket} is ready, status: {status}.",
+                    ticket = self.ticket,
+                    status = status,
                 );
 
+                // Fetch the result from the DynamoDB if there is a status available.
                 // Return the result if it is set.
-                return result
-                    .as_ref()
-                    .map_err(|err| CoffeeShopError::ErrorSchema(err.clone()));
+                return self.fetch(config).await;
             } else {
-                self.waiters_count.fetch_add(1, Ordering::Relaxed);
-
                 // Otherwise, wait for the notification.
                 // This loop is typically only run once.
                 self.notify.notified().await;
@@ -168,7 +157,8 @@ mod tests {
             #[tokio::test]
             async fn $name() {
                 let age = tokio::time::Duration::from_secs_f32($age);
-                let order = Arc::new(Order::<()>::new());
+                let ticket = "test_ticket".to_owned();
+                let order = Arc::new(Order::new(ticket));
 
                 // Clone the order to increase the strong count.
                 let _cloned = if $clone {
@@ -180,7 +170,7 @@ mod tests {
                 // Complete the order.
                 if $complete {
                     order
-                        .complete_with_timestamp(Ok(()), tokio::time::Instant::now() - age)
+                        .complete_with_timestamp(true, tokio::time::Instant::now() - age)
                         .expect("Failed to complete the order.");
                 }
 

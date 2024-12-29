@@ -10,7 +10,7 @@ impl<Q, I, O, F> dynamodb::HasDynamoDBConfiguration for Shop<Q, I, O, F>
 where
     Q: message::QueryType,
     I: Serialize + DeserializeOwned,
-    O: Serialize + DeserializeOwned,
+    O: Serialize + DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
     fn dynamodb_table(&self) -> &str {

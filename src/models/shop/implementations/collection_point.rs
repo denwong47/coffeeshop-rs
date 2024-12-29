@@ -16,12 +16,9 @@ const LOG_TARGET: &str = "coffee_shop::models::collection_point";
 /// - Listens for Multicast messages from the [`Barista`]s from this and other [`Shop`]s
 /// - Update the [`Order`]s in the [`Shop`] instance with the results from the [`Barista`]s
 #[async_trait::async_trait]
-pub trait CollectionPoint<O>: HasDynamoDBConfiguration
-where
-    O: Serialize + DeserializeOwned + Send + Sync,
-{
+pub trait CollectionPoint: HasDynamoDBConfiguration {
     /// Access the orders relevant to the collection point.
-    fn orders(&self) -> &RwLock<Orders<O>>;
+    fn orders(&self) -> &RwLock<Orders>;
 
     /// Purge stale orders from the collection point.
     ///
@@ -65,7 +62,7 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Q, I, O, F> CollectionPoint<O> for Shop<Q, I, O, F>
+impl<Q, I, O, F> CollectionPoint for Shop<Q, I, O, F>
 where
     Q: message::QueryType,
     I: Serialize + DeserializeOwned,
@@ -73,7 +70,7 @@ where
     F: Machine<Q, I, O>,
 {
     /// Access the orders in the [`Shop`] instance.
-    fn orders(&self) -> &RwLock<Orders<O>> {
+    fn orders(&self) -> &RwLock<Orders> {
         &self.orders
     }
 }
@@ -119,7 +116,7 @@ where
 
             drop(orders);
 
-            dynamodb::get_process_results_by_tickets::<O, _>(self, unfulfilled_tickets.iter()).await
+            dynamodb::get_process_successes_by_tickets::<_>(self, unfulfilled_tickets.iter()).await
         }
         .await?;
 

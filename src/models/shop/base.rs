@@ -53,7 +53,7 @@ pub struct Shop<Q, I, O, F>
 where
     Q: message::QueryType,
     I: Serialize + DeserializeOwned,
-    O: Serialize + DeserializeOwned,
+    O: Serialize + DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
     /// The name of the task that this shop is responsible for.
@@ -64,7 +64,7 @@ where
 
     /// A map of tickets to their respective [`Notify`] events that are used to notify the
     /// waiter when a ticket is ready.
-    pub orders: RwLock<Orders<O>>,
+    pub orders: RwLock<Orders>,
 
     /// The coffee machine that will process tickets.
     ///
@@ -92,14 +92,14 @@ where
     pub(crate) temp_dir: tempfile::TempDir,
 
     /// Phantom data to attach the input and output types to the shop.
-    _phantom: PhantomData<(Q, I)>,
+    _phantom: PhantomData<(Q, I, O)>,
 }
 
 impl<Q, I, O, F> Shop<Q, I, O, F>
 where
     Q: message::QueryType,
     I: Serialize + DeserializeOwned,
-    O: Serialize + DeserializeOwned,
+    O: Serialize + DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
     /// Create a new shop with the given name, coffee machine, and configuration.
@@ -152,12 +152,12 @@ where
     ///
     /// Get the ticket if it exists, otherwise create a new one
     /// before returning the [`Arc`] reference to the [`Order`].
-    pub async fn spawn_order(&self, ticket: Ticket) -> Arc<Order<O>> {
+    pub async fn spawn_order(&self, ticket: Ticket) -> Arc<Order> {
         self.orders
             .write()
             .await
-            .entry(ticket)
-            .or_insert_with_key(|_| Arc::new(Order::new()))
+            .entry(ticket.clone())
+            .or_insert_with_key(|_| Arc::new(Order::new(ticket)))
             .clone()
     }
 }

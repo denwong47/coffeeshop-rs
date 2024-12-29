@@ -1,3 +1,4 @@
+use serde::{de::DeserializeOwned, Serialize};
 use std::{
     ops::Deref,
     sync::{atomic::AtomicUsize, Arc},
@@ -27,8 +28,8 @@ use crate::models::Ticket;
 pub struct Barista<Q, I, O, F>
 where
     Q: message::QueryType,
-    I: serde::de::DeserializeOwned + serde::Serialize,
-    O: serde::Serialize + serde::de::DeserializeOwned,
+    I: Serialize + DeserializeOwned,
+    O: Serialize + DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
     /// A back reference to the shop that this barista is serving.
@@ -41,8 +42,8 @@ where
 impl<Q, I, O, F> Barista<Q, I, O, F>
 where
     Q: message::QueryType,
-    I: serde::de::DeserializeOwned + serde::Serialize,
-    O: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
+    I: Serialize + DeserializeOwned,
+    O: Serialize + DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
     /// Create a new [`Barista`] instance.

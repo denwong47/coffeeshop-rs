@@ -10,7 +10,7 @@ impl<Q, I, O, F> sqs::HasSQSConfiguration for Shop<Q, I, O, F>
 where
     Q: message::QueryType,
     I: Serialize + DeserializeOwned,
-    O: Serialize + DeserializeOwned,
+    O: Serialize + DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
     /// The SQS queue URL for the shop.

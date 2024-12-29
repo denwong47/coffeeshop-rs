@@ -118,7 +118,7 @@ where
     async fn create_order(
         &self,
         input: message::CombinedInput<Q, I>,
-    ) -> Result<(message::Ticket, Arc<Order<O>>), CoffeeShopError> {
+    ) -> Result<(message::Ticket, Arc<Order>), CoffeeShopError> {
         self.request_count.fetch_add(1, Ordering::Relaxed);
 
         let ticket =
@@ -148,9 +148,15 @@ where
         let order = order.unwrap();
 
         order
-            .wait_until_complete()
+            .wait_until_complete::<O, _>(self.shop.deref())
             .await
-            .map(|output| message::OutputResponse::new(ticket, output, &start_time))
+            .map(|result| {
+                result.map(|output| {
+                    // Use the `OutputResponse` to create a response.
+                    message::OutputResponse::new(ticket, &output, &start_time).into_response()
+                })
+            })
+            // Convert any remaining errors into responses.
             .into_response()
     }
 
@@ -187,12 +193,16 @@ where
                 let timeout = timeout.unwrap_or(MAX_WAITER_TIMEOUT);
 
                 tokio::select! {
-                    result = order.wait_until_complete() => result.map(
-                        |output| message::OutputResponse::new(
-                            ticket,
-                            output,
-                            &self.start_time,
+                    result = order.wait_until_complete::<O, _>(self.shop.deref()) => result.map(
+                        |result| result.map(
+                            // Use the `OutputResponse` to create a response.
+                            |output| message::OutputResponse::new(
+                                ticket,
+                                &output,
+                                &self.start_time,
+                            ).into_response()
                         )
+                    // Convert any remaining errors into responses.
                     ).into_response(),
                     _ = tokio::time::sleep(timeout) => {
                         Err::<(), _>(CoffeeShopError::RetrieveTimeout(timeout)).into_response()
