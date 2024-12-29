@@ -29,5 +29,8 @@ pub use item_to_process_result::*;
 mod func;
 pub use func::*;
 
+/// Alias for a DynamoDB item.
+pub type DynamoDBItem = std::collections::HashMap<String, aws_sdk_dynamodb::types::AttributeValue>;
+
 #[cfg(test)]
 mod tests;

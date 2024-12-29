@@ -172,6 +172,9 @@ pub enum CoffeeShopError {
     #[error("Result is already set, cannot set again.")]
     ResultAlreadySet,
 
+    #[error("The ticket {0} does not have a result. It could have been purged, or the ticket is invalid.")]
+    ResultNotFound(Ticket),
+
     #[error("The ticket {0} was not found.")]
     TicketNotFound(Ticket),
 

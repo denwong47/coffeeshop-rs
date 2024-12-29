@@ -15,35 +15,54 @@ use aws_sdk_dynamodb::types::AttributeValue;
 use crate::models::message::ProcessResult;
 
 /// Trait for converting an item to a process result.
-pub trait ToProcessResult<O>
-where
-    O: DeserializeOwned + Send + Sync,
-{
+pub trait ToProcessResult {
+    /// Attempt to check the status of the item.
+    ///
+    /// This function do not require the full result to be present in the item;
+    /// only the ticket and success status are needed. Only tickets with a success
+    /// status will be returned, regardless of whether it is `true` or `false`.
+    ///
+    /// This does not consume the item; a minimal cloning is performed on the ticket.
+    fn to_process_status(&self, partition_key: &str) -> Result<(Ticket, bool), CoffeeShopError>;
+
     /// Attempt to convert the item into a process result.
     ///
     /// The return type of this has a nested [`Result`]:
     /// - The outer [`Result<(Ticket, _)`] is the result of the conversion.
     /// - The inner [`ProcessResultExport<O>`] is the actual processing result.
     ///
-    /// The output type is not a [`ProcessResult<O>`] as the original error type
-    /// since the original error could contain non-serializable types or non-static lifetimes.
-    /// Additionally it was not wrapped in a [`CoffeeShopError::ErrorSchema`] to
+    /// Only the inner [`ErrorSchema`] is preserved, distinguishing it from a local error.
+    /// Not being wrapped in a [`CoffeeShopError::ErrorSchema`], this also
     /// ensure that the error can be [`Clone`]d and serialized into a
-    /// [`Response`](axum::http::Response).
-    fn to_process_result(
+    /// [`Response`](axum::http::Response), since the original error could
+    /// contain non-serializable types or non-static lifetimes.
+    fn to_process_result<O>(
         self,
         partition_key: &str,
-    ) -> Result<(Ticket, ProcessResultExport<O>), CoffeeShopError>;
+    ) -> Result<(Ticket, ProcessResultExport<O>), CoffeeShopError>
+    where
+        O: DeserializeOwned + Send + Sync;
 }
 
-impl<O> ToProcessResult<O> for std::collections::HashMap<String, AttributeValue>
-where
-    O: DeserializeOwned + Send + Sync,
-{
-    fn to_process_result(
+impl ToProcessResult for std::collections::HashMap<String, AttributeValue> {
+    fn to_process_status(&self, partition_key: &str) -> Result<(Ticket, bool), CoffeeShopError> {
+        match (self.get(partition_key), self.get(SUCCESS_KEY)) {
+            (Some(AttributeValue::S(ticket)), Some(AttributeValue::Bool(success))) => {
+                Ok((ticket.clone(), *success))
+            }
+            _ => Err(CoffeeShopError::DynamoDBMalformedItem(
+                "A map was retrieved, but its structure could not be parsed.".to_string(),
+            )),
+        }
+    }
+
+    fn to_process_result<O>(
         mut self,
         partition_key: &str,
-    ) -> Result<(Ticket, ProcessResultExport<O>), CoffeeShopError> {
+    ) -> Result<(Ticket, ProcessResultExport<O>), CoffeeShopError>
+    where
+        O: DeserializeOwned + Send + Sync,
+    {
         match (
             self.remove(partition_key),
             self.remove(SUCCESS_KEY),

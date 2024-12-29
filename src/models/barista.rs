@@ -115,7 +115,7 @@ where
         let process_result = self.process_ticket(&receipt).await;
 
         // Send the result to DynamoDB.
-        helpers::dynamodb::put_item(
+        helpers::dynamodb::put_process_result(
             self.shop.deref(),
             &receipt.ticket,
             process_result,

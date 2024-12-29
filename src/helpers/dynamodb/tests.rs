@@ -73,7 +73,7 @@ mod put_items {
             async fn $name() {
                 let (config, ticket, temp_dir) = get_statics().await;
 
-                put_item(
+                put_process_result(
                     &config,
                     &ticket,
                     $expected_result,
@@ -84,7 +84,22 @@ mod put_items {
 
                 crate::info!(target: LOG_TARGET, "Put {:?} into DynamoDB table {}.", stringify!($name), config.dynamodb_table());
 
-                let mut items = get_items_by_tickets::<TestResult, _>(
+                // Test the fetching of statuses.
+                let mut statuses = get_process_successes_by_tickets(
+                    &config,
+                    [ticket.clone()].iter(),
+                ).await.expect("Failed to get the statuses from the DynamoDB table.");
+
+                assert_eq!(statuses.len(), 1, "The number of statuses does not match.");
+
+                // Test the fetching of items.
+                let (actual_ticket, actual_status) = statuses.pop().unwrap();
+
+                crate::info!(target: LOG_TARGET, "Retrieved the status from the DynamoDB table: {:?}", actual_status);
+                assert_eq!(actual_ticket, ticket, "The tickets do not match.");
+                assert_eq!(actual_status, $expected_result.is_ok(), "The statuses do not match.");
+
+                let mut items = get_process_results_by_tickets::<TestResult, _>(
                     &config,
                     [ticket.clone()].iter(),
                 ).await.expect("Failed to get the items from the DynamoDB table.");
@@ -93,10 +108,20 @@ mod put_items {
                 let (actual_ticket, actual_result) = items.pop().unwrap();
                 crate::info!(target: LOG_TARGET, "Retrieved the item from the DynamoDB table: {:?}", actual_result);
 
-                assert_eq!(actual_ticket, ticket, "The tickets do not match.");
-                assert_eq!(actual_result, $expected_result.map_err(
-                    |err| err.as_error_schema()
-                ), "The results differ in content.");
+                let validate = |actual_ticket, actual_result| {
+                    assert_eq!(actual_ticket, &ticket, "The tickets do not match.");
+                    assert_eq!(actual_result, $expected_result.map_err(
+                        |err| err.as_error_schema()
+                    ), "The results differ in content.");
+                };
+                validate(&actual_ticket, actual_result);
+
+                // Test the fetching of a single item.
+                let actual_result = get_process_result_by_ticket::<TestResult, _>(
+                    &config,
+                    &ticket,
+                ).await.expect("Failed to get the item from the DynamoDB table.");
+                validate(&actual_ticket, actual_result);
             }
         };
     }

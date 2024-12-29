@@ -16,7 +16,7 @@ use crate::{
 use super::*;
 
 /// Put a processing result into a DynamoDB table.
-pub async fn put_item<O>(
+pub async fn put_process_result<O>(
     config: &dyn HasDynamoDBConfiguration,
     ticket: &Ticket,
     result: ProcessResult<O>,
@@ -65,12 +65,12 @@ where
 /// the request will fail.
 ///
 /// [BatchGetItem]: https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchGetItem.html
-pub async fn get_items_by_tickets_unchecked<O, C>(
+pub async fn get_items_by_tickets_unchecked<C>(
     config: &C,
     tickets: impl Iterator<Item = &Ticket>,
-) -> Result<Vec<(Ticket, ProcessResultExport<O>)>, CoffeeShopError>
+    projection_expression: Option<&[String]>,
+) -> Result<Vec<DynamoDBItem>, CoffeeShopError>
 where
-    O: DeserializeOwned + Send + Sync,
     C: HasDynamoDBConfiguration,
 {
     let client = dynamodb::Client::new(config.aws_config());
@@ -96,7 +96,11 @@ where
             // This creates a mapper that requests from this table...
             config.dynamodb_table(),
             // ...all items with the given keys from the above vector.
-            dynamodb::types::KeysAndAttributes::builder().set_keys(Some(keys)).build().map_err(
+            dynamodb::types::KeysAndAttributes::builder()
+            .set_keys(Some(keys))
+            .set_attributes_to_get(projection_expression.map(|attrs| attrs.to_vec()))
+            .build()
+            .map_err(
                 |err| {
                     crate::error!(
                         "Failed to build the keys and attributes for the batch get item request for table {}. Error: {:?}",
@@ -133,12 +137,7 @@ where
             );
 
             // Iterate the results and convert them into a vector of (ticket, result) tuples.
-            return results
-                .into_iter()
-                .map(|map|
-                        // Convert all the items from the table into a (ticket, result) tuple.
-                        map.to_process_result(config.dynamodb_partition_key()))
-                .collect::<Result<Vec<_>, _>>();
+            return Ok(results);
         }
     }
 
@@ -152,12 +151,12 @@ where
 }
 
 /// Get items that matches any given partition keys from a DynamoDB table.
-pub async fn get_items_by_tickets<O, C>(
+pub async fn get_items_by_tickets<C>(
     config: &C,
     tickets: impl ExactSizeIterator<Item = &Ticket>,
-) -> Result<Vec<(Ticket, ProcessResultExport<O>)>, CoffeeShopError>
+    projection_expression: Option<&[String]>,
+) -> Result<Vec<DynamoDBItem>, CoffeeShopError>
 where
-    O: DeserializeOwned + Send + Sync,
     C: HasDynamoDBConfiguration,
 {
     if tickets.len() == 0 {
@@ -174,8 +173,98 @@ where
         // Iterate the chunks and get the items for each chunk.
         chunks
             .into_iter()
-            .map(|chunk| get_items_by_tickets_unchecked::<O, _>(config, chunk)),
+            .map(|chunk| get_items_by_tickets_unchecked::<_>(config, chunk, projection_expression)),
     )
     .await
     .map(|results| results.into_iter().flatten().collect())
+}
+
+/// Get the processing results that matches any given partition keys from a DynamoDB table.
+pub async fn get_process_results_by_tickets<O, C>(
+    config: &C,
+    tickets: impl ExactSizeIterator<Item = &Ticket>,
+) -> Result<Vec<(Ticket, ProcessResultExport<O>)>, CoffeeShopError>
+where
+    O: DeserializeOwned + Send + Sync,
+    C: HasDynamoDBConfiguration,
+{
+    get_items_by_tickets(config, tickets, None)
+        .await
+        .and_then(|items| {
+            items
+                .into_iter()
+                .map(|item| item.to_process_result(config.dynamodb_partition_key()))
+                .collect::<Result<Vec<_>, _>>()
+        })
+}
+/// Get the statuses that matches any given partition keys from a DynamoDB table.
+pub async fn get_process_successes_by_tickets<C>(
+    config: &C,
+    tickets: impl ExactSizeIterator<Item = &Ticket>,
+) -> Result<Vec<(Ticket, bool)>, CoffeeShopError>
+where
+    C: HasDynamoDBConfiguration,
+{
+    let projection_expression = vec![
+        config.dynamodb_partition_key().to_owned(),
+        SUCCESS_KEY.to_owned(),
+    ];
+
+    get_items_by_tickets(config, tickets, Some(&projection_expression))
+        .await
+        .and_then(|items| {
+            items
+                .into_iter()
+                .map(|item| item.to_process_status(config.dynamodb_partition_key()))
+                .collect::<Result<Vec<_>, _>>()
+        })
+}
+
+/// Get a single processing result that matches the given partition key from a DynamoDB table.
+/// This function currently is a convenience wrapper around [`get_process_results_by_tickets`];
+/// which could take a bit more computation time than necessary, but reduces the maintenance
+/// overhead of having to maintain two separate functions.
+///
+/// # Note
+///
+/// This function is not optimized for performance; it is recommended to use
+/// [`get_process_results_by_tickets`] if you need to get multiple results.
+pub async fn get_process_result_by_ticket<O, C>(
+    config: &C,
+    ticket: &Ticket,
+) -> Result<ProcessResultExport<O>, CoffeeShopError>
+where
+    O: DeserializeOwned + Send + Sync,
+    C: HasDynamoDBConfiguration,
+{
+    get_process_results_by_tickets(config, std::iter::once(ticket))
+        .await
+        .and_then(|mut results| {
+            results
+                .pop()
+                .and_then(
+                    |(found_ticket, result)| {
+                        if found_ticket == *ticket {
+                            Some(result)
+                        } else {
+                            crate::error!(
+                                "The ticket {} does not match the found ticket {} in the DynamoDB table {}. Reporting as not found; this should not happen.",
+                                ticket,
+                                found_ticket,
+                                config.dynamodb_table()
+                            );
+                            None
+                        }
+                    }
+                )
+                .ok_or_else(|| {
+                    crate::warn!(
+                        "No processing result found for the given ticket {} in the DynamoDB table {}.",
+                        ticket,
+                        config.dynamodb_table()
+                    );
+
+                    CoffeeShopError::ResultNotFound(ticket.to_string())
+                })
+        })
 }

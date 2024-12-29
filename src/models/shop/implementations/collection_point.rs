@@ -119,7 +119,7 @@ where
 
             drop(orders);
 
-            dynamodb::get_items_by_tickets::<O, _>(self, unfulfilled_tickets.iter()).await
+            dynamodb::get_process_results_by_tickets::<O, _>(self, unfulfilled_tickets.iter()).await
         }
         .await?;
 
