@@ -8,6 +8,17 @@ use crate::models::Shop;
 pub trait HasSQSConfiguration: HasAWSSdkConfig {
     /// The name of the SQS table.
     fn sqs_queue_url(&self) -> &str;
+
+    /// Extract the configuration as a separate struct.
+    ///
+    /// This is useful if the main configuration struct is too large, or it
+    /// lacks certain traits such as [`Send`] or [`Sync`].
+    fn sqs_configuration(&self) -> SQSConfiguration {
+        SQSConfiguration {
+            queue_url: self.sqs_queue_url().to_owned(),
+            aws_config: self.aws_config().clone(),
+        }
+    }
 }
 
 /// A minimal implementation of [`SQSConfiguration`] for testing purposes, or

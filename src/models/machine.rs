@@ -15,7 +15,7 @@ use super::message;
 /// To use this trait, you must implement the `Machine` trait for your struct
 /// and define the `call` method, which can be a simple wrapper around an async
 /// function.
-pub trait Machine<Q, I, O>: Clone + Send + Sized
+pub trait Machine<Q, I, O>: Clone + Send + Sync + Sized
 where
     Q: message::QueryType,
     I: serde::de::DeserializeOwned + serde::Serialize,

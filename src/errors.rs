@@ -250,30 +250,26 @@ impl CoffeeShopError {
         self.into()
     }
 
-    /// Converts the error into a JSON object.
-    pub fn as_json(&self) -> serde_json::Value {
+    pub fn as_error_schema(&self) -> ErrorSchema {
         match self {
             // Potentially unsafe! However it's best for the downstream maintainer to know
             // about this rather than silently failing.
-            Self::ProcessingError(err) => serde_json::to_value(err).expect(
-                "Failed to serialize the `CoffeeMachineError` into JSON for the response. Please check your error type definition.",
+            Self::ProcessingError(err) => err.clone(),
+            Self::ErrorSchema(err) => err.clone(),
+            _ => ErrorSchema::new(
+                self.status_code(),
+                self.kind().to_string(),
+                Some(serde_json::json!({
+                    "message": self.to_string(),
+                })),
             ),
-            Self::ErrorSchema(err) => serde_json::to_value(err).expect(
-                "Failed to serialize the `ErrorSchema` into JSON for the response. Please check your error type definition.",
-            ),
-            _ => serde_json::to_value(
-                ErrorSchema::new(
-                    self.status_code(),
-                    self.kind().to_string(),
-                    Some(serde_json::json!({
-                        "message": self.to_string(),
-                    })),
-                )
-            // Potentially unsafe! This should however be unreachable.
-            ).unwrap_or_else(|_| panic!("A default {kind} error could not be serialized into JSON: {err:?}. Please notify the maintainers.",
-                    kind = self.kind(),
-                    err = &self))
         }
+    }
+
+    /// Converts the error into a JSON object.
+    pub fn as_json(&self) -> serde_json::Value {
+        serde_json::to_value(self.as_error_schema()).unwrap_or_else(|_| panic!("Failed to serialize the `ErrorSchema` into JSON for the response. This should not be possible; please check your error type definition: {:?}",
+                self))
     }
 }
 

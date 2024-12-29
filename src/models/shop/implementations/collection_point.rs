@@ -1,14 +1,13 @@
 use crate::{
-    helpers::dynamodb::HasDynamoDBConfiguration,
-    models::{message, Machine, Order, Orders, Shop, Ticket},
+    helpers::dynamodb::{self, HasDynamoDBConfiguration},
+    models::{message, Machine, Orders, Shop},
     CoffeeShopError,
 };
 use serde::{de::DeserializeOwned, Serialize};
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[cfg(doc)]
-use crate::models::{Barista, Waiter};
+use crate::models::{Barista, Order, Waiter};
 
 const LOG_TARGET: &str = "coffee_shop::models::collection_point";
 
@@ -63,30 +62,6 @@ where
             }
         }
     }
-
-    /// Get the unfulfilled orders from the collection point.
-    async fn unfulfilled_orders(&self) -> Vec<(Ticket, Arc<Order<O>>)> {
-        let orders = self.orders().read().await;
-
-        orders
-            .iter()
-            .filter(|&(_, v)| (!v.is_fulfilled()))
-            .map(|(k, v)| (k.to_owned(), Arc::clone(v)))
-            .collect()
-    }
-
-    /// Listen to the multicast messages from the [`Barista`]s.
-    ///
-    /// This function never returns; it will simply listen for multicast messages
-    /// and spawn handlers for each received message to update the [`Order`]s.
-    async fn listen_for_multicast(&self) -> Result<(), CoffeeShopError> {
-        todo!()
-    }
-
-    /// Check DynamoDB for newly fulfilled [`Order`]s.
-    async fn check_for_fulfilled_orders(&self) -> Result<(), CoffeeShopError> {
-        todo!()
-    }
 }
 
 #[async_trait::async_trait]
@@ -100,5 +75,61 @@ where
     /// Access the orders in the [`Shop`] instance.
     fn orders(&self) -> &RwLock<Orders<O>> {
         &self.orders
+    }
+}
+
+/// These methods could not form part of the [`CollectionPoint`] trait because they
+/// uses the `self` reference in a way that requires too many lifetimes to be specified.
+impl<Q, I, O, F> Shop<Q, I, O, F>
+where
+    Q: message::QueryType,
+    I: Serialize + DeserializeOwned,
+    O: Serialize + DeserializeOwned + Send + Sync,
+    F: Machine<Q, I, O>,
+{
+    /// Listen to the multicast messages from the [`Barista`]s.
+    ///
+    /// This function never returns; it will simply listen for multicast messages
+    /// and spawn handlers for each received message to update the [`Order`]s.
+    ///
+    /// # Note
+    ///
+    /// Internal function: this function is not meant to be called directly.
+    pub async fn listen_for_multicast(&self) -> Result<(), CoffeeShopError> {
+        todo!()
+    }
+
+    /// Check DynamoDB for newly fulfilled [`Order`]s.
+    ///
+    /// # Note
+    ///
+    /// Internal function: this function is not meant to be called directly.
+    pub async fn check_for_fulfilled_orders(&self) -> Result<(), CoffeeShopError> {
+        let found_results = async {
+            let orders = self.orders().read().await;
+
+            let unfulfilled_tickets = orders
+                .iter()
+                .filter_map(|(k, v)| (!v.is_fulfilled()).then_some(k))
+                // This clone is a necessary evil in order to drop the read lock;
+                // if we hold references to the orders while we await the results,
+                // the orders will be locked for the duration of an IO.
+                .cloned()
+                .collect::<Vec<_>>();
+
+            drop(orders);
+
+            dynamodb::get_items_by_tickets::<O, _>(self, unfulfilled_tickets.iter()).await
+        }
+        .await?;
+
+        let orders = self.orders().read().await;
+        for (ticket, result) in found_results {
+            if let Some(order) = orders.get(&ticket) {
+                order.complete(result)?;
+            }
+        }
+
+        Ok(())
     }
 }

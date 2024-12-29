@@ -16,6 +16,19 @@ pub trait HasDynamoDBConfiguration: HasAWSSdkConfig {
 
     /// The time-to-live (TTL) duration for the items in the DynamoDB table.
     fn dynamodb_ttl(&self) -> tokio::time::Duration;
+
+    /// Extract the configuration as a separate struct.
+    ///
+    /// This is useful if the main configuration struct is too large, or it
+    /// lacks certain traits such as [`Send`] or [`Sync`].
+    fn dynamodb_configuration(&self) -> DynamoDBConfiguration {
+        DynamoDBConfiguration {
+            table: self.dynamodb_table().to_owned(),
+            partition_key: self.dynamodb_partition_key().to_owned(),
+            ttl: self.dynamodb_ttl(),
+            aws_config: self.aws_config().clone(),
+        }
+    }
 }
 
 /// A minimal implementation of [`HasDynamoDBConfiguration`] for testing purposes, or

@@ -6,7 +6,10 @@ use serde::de::DeserializeOwned;
 use std::vec;
 
 use crate::{
-    models::{message::ProcessResult, Ticket},
+    models::{
+        message::{ProcessResult, ProcessResultExport},
+        Ticket,
+    },
     CoffeeShopError,
 };
 
@@ -62,12 +65,13 @@ where
 /// the request will fail.
 ///
 /// [BatchGetItem]: https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchGetItem.html
-pub async fn get_items_by_tickets_unchecked<O>(
-    config: &dyn HasDynamoDBConfiguration,
+pub async fn get_items_by_tickets_unchecked<O, C>(
+    config: &C,
     tickets: impl Iterator<Item = &Ticket>,
-) -> Result<Vec<(Ticket, ProcessResult<O>)>, CoffeeShopError>
+) -> Result<Vec<(Ticket, ProcessResultExport<O>)>, CoffeeShopError>
 where
     O: DeserializeOwned + Send + Sync,
+    C: HasDynamoDBConfiguration,
 {
     let client = dynamodb::Client::new(config.aws_config());
     let table = config.dynamodb_table();
@@ -148,12 +152,13 @@ where
 }
 
 /// Get items that matches any given partition keys from a DynamoDB table.
-pub async fn get_items_by_tickets<O>(
-    config: &dyn HasDynamoDBConfiguration,
+pub async fn get_items_by_tickets<O, C>(
+    config: &C,
     tickets: impl ExactSizeIterator<Item = &Ticket>,
-) -> Result<Vec<(Ticket, ProcessResult<O>)>, CoffeeShopError>
+) -> Result<Vec<(Ticket, ProcessResultExport<O>)>, CoffeeShopError>
 where
     O: DeserializeOwned + Send + Sync,
+    C: HasDynamoDBConfiguration,
 {
     if tickets.len() == 0 {
         // If there are no tickets, return an empty vector.
@@ -169,7 +174,7 @@ where
         // Iterate the chunks and get the items for each chunk.
         chunks
             .into_iter()
-            .map(|chunk| get_items_by_tickets_unchecked::<O>(config, chunk)),
+            .map(|chunk| get_items_by_tickets_unchecked::<O, _>(config, chunk)),
     )
     .await
     .map(|results| results.into_iter().flatten().collect())

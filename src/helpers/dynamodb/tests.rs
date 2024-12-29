@@ -1,7 +1,10 @@
 use super::*;
 use crate::{
     helpers::aws::{self, HasAWSSdkConfig},
-    models::{message::ProcessResult, Ticket},
+    models::{
+        message::{ProcessResult, ProcessResultExport},
+        Ticket,
+    },
     CoffeeMachineError, CoffeeShopError,
 };
 use axum::http;
@@ -81,7 +84,7 @@ mod put_items {
 
                 crate::info!(target: LOG_TARGET, "Put {:?} into DynamoDB table {}.", stringify!($name), config.dynamodb_table());
 
-                let mut items = get_items_by_tickets::<TestResult>(
+                let mut items = get_items_by_tickets::<TestResult, _>(
                     &config,
                     [ticket.clone()].iter(),
                 ).await.expect("Failed to get the items from the DynamoDB table.");
@@ -91,22 +94,24 @@ mod put_items {
                 crate::info!(target: LOG_TARGET, "Retrieved the item from the DynamoDB table: {:?}", actual_result);
 
                 assert_eq!(actual_ticket, ticket, "The tickets do not match.");
-                assert_eq!(actual_result, $expected_result, "The results differ in content.");
+                assert_eq!(actual_result, $expected_result.map_err(
+                    |err| err.as_error_schema()
+                ), "The results differ in content.");
             }
         };
     }
 
-    create_test!(success(Ok::<_, CoffeeShopError>(TestResult {
+    create_test!(success(ProcessResult::<TestResult>::Ok(TestResult {
         first_name: "Big".to_string(),
         last_name: "Dave".to_string(),
         age: 42,
     })));
 
-    create_test!(failure_host(Err::<TestResult, _>(
+    create_test!(failure_host(ProcessResult::<TestResult>::Err(
         CoffeeShopError::UnexpectedAWSResponse("Test error message.".to_string(),)
     )));
 
-    create_test!(failure_process(Err::<TestResult, _>(
+    create_test!(failure_process(ProcessResult::<TestResult>::Err(
         CoffeeShopError::ProcessingError(CoffeeMachineError::new(
             http::StatusCode::IM_A_TEAPOT,
             "ImATeaPot".to_owned(),
@@ -154,12 +159,14 @@ mod process_result_to_and_from_item {
                 crate::info!(target: LOG_TARGET, "Extracted the item from the PutItemFluentBuilder: {:?}", item);
                 drop(builder);
 
-                let (actual_ticket, actual_result): (Ticket, ProcessResult<TestResult>) = item.to_process_result(config.dynamodb_partition_key())
+                let (actual_ticket, actual_result): (Ticket, ProcessResultExport<TestResult>) = item.to_process_result(config.dynamodb_partition_key())
                     .expect("Failed to convert the item to a processing result.");
 
                 crate::info!(target: LOG_TARGET, "Converted the item of ticket {actual_ticket:?} to a processing result: {:#?}", actual_result);
                 assert_eq!(actual_ticket, expected_ticket, "The tickets do not match.");
-                assert_eq!(actual_result, $expected_result, "The results differ in content.");
+                assert_eq!(actual_result, $expected_result.map_err(
+                    |err| err.as_error_schema()
+                ), "The results differ in content.");
             }
         };
     }
