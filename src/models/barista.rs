@@ -3,7 +3,10 @@ use std::{
     sync::{atomic::AtomicUsize, Arc},
 };
 
-use super::{message, Machine, Shop};
+use super::{
+    message::{self, ProcessResult},
+    Machine, Shop,
+};
 
 use crate::{helpers, CoffeeShopError};
 
@@ -86,7 +89,7 @@ where
     pub async fn process_ticket(
         &self,
         receipt: &helpers::sqs::StagedReceipt<Q, I>,
-    ) -> Result<O, crate::CoffeeShopError> {
+    ) -> ProcessResult<O> {
         // Increment the process count.
         self.process_count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);

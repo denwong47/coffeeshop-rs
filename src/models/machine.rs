@@ -1,7 +1,6 @@
 use std::future::Future;
 
 use super::message;
-use crate::CoffeeMachineError;
 
 /// A trait that defines the behavior of a coffee machine, i.e. the function
 /// that will be called when a ticket is received, and outputs the result
@@ -26,9 +25,6 @@ where
     ///
     /// A [`Machine`] is expected to process the input and return the output; if an error
     /// occurs, it should return a [`CoffeeMachineError`].
-    fn call(
-        &self,
-        query: &Q,
-        input: Option<&I>,
-    ) -> impl Future<Output = Result<O, CoffeeMachineError>>;
+    fn call(&self, query: &Q, input: Option<&I>)
+        -> impl Future<Output = message::MachineResult<O>>;
 }

@@ -15,7 +15,7 @@ use tempfile::TempDir;
 
 use super::buffer;
 
-use crate::CoffeeShopError;
+use crate::{models::message::ProcessResult, CoffeeShopError};
 
 #[cfg(feature = "debug")]
 const LOG_TARGET: &str = "coffeeshop::helpers::serde";
@@ -90,7 +90,7 @@ pub async fn serialize<'d, O: serde::Serialize>(
 }
 
 /// Deserialize a binary payload into a struct.
-pub fn deserialize<O: serde::de::DeserializeOwned>(data: Vec<u8>) -> Result<O, CoffeeShopError> {
+pub fn deserialize<O: serde::de::DeserializeOwned>(data: Vec<u8>) -> ProcessResult<O> {
     let reader = std::io::Cursor::new(data);
     let mut creader = ParDecompress::<Mgzip>::builder().from_reader(reader);
 

@@ -1,13 +1,14 @@
 use crate::{
     helpers::dynamodb::HasDynamoDBConfiguration,
-    models::{message, Machine, Orders, Shop},
+    models::{message, Machine, Order, Orders, Shop, Ticket},
     CoffeeShopError,
 };
 use serde::{de::DeserializeOwned, Serialize};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[cfg(doc)]
-use crate::models::{Barista, Order, Waiter};
+use crate::models::{Barista, Waiter};
 
 const LOG_TARGET: &str = "coffee_shop::models::collection_point";
 
@@ -61,6 +62,17 @@ where
                 );
             }
         }
+    }
+
+    /// Get the unfulfilled orders from the collection point.
+    async fn unfulfilled_orders(&self) -> Vec<(Ticket, Arc<Order<O>>)> {
+        let orders = self.orders().read().await;
+
+        orders
+            .iter()
+            .filter(|&(_, v)| (!v.is_fulfilled()))
+            .map(|(k, v)| (k.to_owned(), Arc::clone(v)))
+            .collect()
     }
 
     /// Listen to the multicast messages from the [`Barista`]s.

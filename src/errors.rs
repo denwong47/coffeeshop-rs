@@ -177,6 +177,9 @@ pub enum CoffeeShopError {
 
     #[error("Upstream worker reported an error: {0:?}")]
     ErrorSchema(ErrorSchema),
+
+    #[error("DynamoDB item is found malformed: {0}")]
+    DynamoDBMalformedItem(String),
 }
 
 impl CoffeeShopError {
@@ -237,6 +240,7 @@ impl CoffeeShopError {
             CoffeeShopError::Base64EncodingOversize(_) => http::StatusCode::PAYLOAD_TOO_LARGE,
             CoffeeShopError::ProcessingError(ErrorSchema { status_code, .. }) => *status_code,
             CoffeeShopError::ErrorSchema(ErrorSchema { status_code, .. }) => *status_code,
+            CoffeeShopError::DynamoDBMalformedItem(_) => http::StatusCode::BAD_GATEWAY,
             _ => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -270,6 +274,19 @@ impl CoffeeShopError {
                     kind = self.kind(),
                     err = &self))
         }
+    }
+}
+
+impl PartialEq for CoffeeShopError {
+    fn eq(&self, other: &Self) -> bool {
+        // When an error is serialized and deserialized, the kind will become
+        // "ErrorSchema" for the downstream user. This is because the error is now
+        // a message instead of an actual raised error; the error type is lost.
+        // This comparison accounts for those errors.
+        (self.kind() == other.kind()
+            || self.kind() == "ErrorSchema"
+            || other.kind() == "ErrorSchema")
+            && self.as_json() == other.as_json()
     }
 }
 

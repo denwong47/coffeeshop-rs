@@ -8,24 +8,13 @@
 //! to the item with the status code of the error. The error message is customised
 //! by the error type of [`CoffeeShopError::ErrorSchema`].
 
-use crate::{helpers, models::Ticket, CoffeeShopError};
-
+use super::{ERROR_KEY, OUTPUT_KEY, STATUS_KEY, SUCCESS_KEY, TTL_KEY};
+use crate::{
+    helpers,
+    models::{message::ProcessResult, Ticket},
+    CoffeeShopError,
+};
 use aws_sdk_dynamodb as dynamodb;
-
-/// The key for the status of the processing result.
-const SUCCESS_KEY: &str = "success";
-
-/// The key for the status code of the processing result.
-const STATUS_KEY: &str = "status_code";
-
-/// The key for the output of the processing result.
-const OUTPUT_KEY: &str = "output";
-
-/// The key for the error of the processing result.
-const ERROR_KEY: &str = "error";
-
-/// The key for the time-to-live of the processing result.
-const TTL_KEY: &str = "ttl";
 
 /// Add items common to both
 /// [`report_ticket_success`](ToItem::report_ticket_success) and
@@ -79,14 +68,17 @@ pub trait ToItem: Sized {
     ) -> Self::Output;
 
     /// Convert the processing result into a DynamoDB item.
-    async fn report_ticket_result(
+    async fn report_ticket_result<O>(
         self,
         partition_key: &str,
         ticket: &Ticket,
-        result: Result<impl serde::Serialize + Send + Sync, CoffeeShopError>,
+        result: ProcessResult<O>,
         ttl: &tokio::time::Duration,
         temp_dir: &tempfile::TempDir,
-    ) -> Self::Output {
+    ) -> Self::Output
+    where
+        O: serde::Serialize + Send + Sync,
+    {
         match result {
             Ok(output) => {
                 self.report_ticket_success(partition_key, ticket, output, ttl, temp_dir)

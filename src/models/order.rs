@@ -69,11 +69,6 @@ where
         self.result.get()
     }
 
-    /// Consume this struct and take the result of the ticket if one is available.
-    pub fn take_result(self) -> Option<(tokio::time::Instant, Result<O, errors::ErrorSchema>)> {
-        self.result.into_inner()
-    }
-
     /// Get the age of the result.
     pub fn age_of_result(&self) -> Option<tokio::time::Duration> {
         self.result().map(|(instant, _)| instant.elapsed())
@@ -98,6 +93,11 @@ where
     /// Notify the waiter that the ticket is ready.
     pub fn complete(&self, result: Result<O, errors::ErrorSchema>) -> Result<(), CoffeeShopError> {
         self.complete_with_timestamp(result, tokio::time::Instant::now())
+    }
+
+    /// Check if this result is fulfilled.
+    pub fn is_fulfilled(&self) -> bool {
+        self.result().is_some()
     }
 
     /// Check if this result is stale.
