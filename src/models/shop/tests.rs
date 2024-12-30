@@ -1,11 +1,13 @@
 use super::*;
 
 use axum::http;
+use std::sync::Arc;
+use tokio::sync::Notify;
 
 use crate::{cli::Config, helpers, models::test::*};
 
 const STALE_AGE: tokio::time::Duration = tokio::time::Duration::from_secs(60);
-const DEFAULT_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(10);
+const DEFAULT_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(3);
 
 mod functions_only {
     use crate::models::message::CombinedInput;
@@ -19,6 +21,7 @@ mod functions_only {
             $name:ident(
                 query=$query:expr,
                 payload=$payload:expr,
+                validation_error=$validation_error:literal,
                 expected=$expected:expr,
             )
         ) => {
@@ -51,26 +54,46 @@ mod functions_only {
                 let query = $query;
                 let payload = $payload;
 
+                // We need some sort of mechanism to notify the barista that the waiter is dead,
+                // so that it will
+                // - stop waiting, and
+                // - return a Ok response because its not his fault.
+                let waiter_is_dead = Arc::new(Notify::new());
+
                 // Set up the workloads that needs to be done in order to send, process and receive
                 // the ticket.
                 let waiter_workload = async {
-                    Ok(waiter
+                    let response = waiter
                         .create_and_retrieve_order(
                             CombinedInput::new(query, payload),
                             Some(DEFAULT_TIMEOUT),
                         )
-                        .await)
+                        .await;
+
+                    waiter_is_dead.clone().notify_waiters();
+                    Ok(response)
                 };
 
                 let barista_workload = async {
-                    barista.process_next_ticket(Some(DEFAULT_TIMEOUT)).await?;
-                    shop.check_for_fulfilled_orders().await
+                    tokio::select! {
+                        result = async {
+                            barista.process_next_ticket(Some(DEFAULT_TIMEOUT)).await?;
+                            shop.check_for_fulfilled_orders().await
+                        } => result,
+                        // If the waiter is dead, we should stop the barista, and return
+                        // a Ok response.
+                        _ = waiter_is_dead.notified() => {
+                            crate::info!(target: LOG_TARGET, "Waiter is dead; stopping the barista.");
+                            Ok(())
+                        },
+                    }
                 };
 
-                let (_, response) = tokio::try_join!(barista_workload, waiter_workload,)
-                    .expect("Both workloads should not have failed.");
+                let response = tokio::try_join!(barista_workload, waiter_workload).expect(
+                    "All of the workloads should have executed correctly, but returned an error.",
+                ).1;
 
-                crate::info!(target: LOG_TARGET, "Received response: {response:?}");
+                crate::info!(target: LOG_TARGET, "Received response: {response:#?}");
 
                 assert_eq!(response.status(), $expected);
                 // Regardless of what happens, we should always return a JSON.
@@ -90,6 +113,7 @@ mod functions_only {
             action: TestStatus::Eat,
             duration: 3600.,
         }),
+        validation_error = false,
         expected = http::StatusCode::OK,
     ));
 
@@ -99,7 +123,21 @@ mod functions_only {
             timeout: Some(DEFAULT_TIMEOUT),
         },
         payload = None,
-        expected = http::StatusCode::BAD_REQUEST,
+        validation_error = true,
+        expected = http::StatusCode::UNPROCESSABLE_ENTITY,
+    ));
+
+    create_test!(validation_error(
+        query = TestQuery {
+            name: "Big Dave".to_string(),
+            timeout: Some(DEFAULT_TIMEOUT),
+        },
+        payload = Some(TestPayload {
+            action: TestStatus::Eat,
+            duration: -1.,
+        }),
+        validation_error = true,
+        expected = http::StatusCode::UNPROCESSABLE_ENTITY,
     ));
 
     create_test!(forbidden_input(
@@ -111,10 +149,13 @@ mod functions_only {
             action: TestStatus::Eat,
             duration: 3600.,
         }),
+        validation_error = false,
         expected = http::StatusCode::FORBIDDEN,
     ));
 
-    create_test!(unprocessable_input(
+    // Same test as above, just checking that the status code is indeed
+    // passed through.
+    create_test!(not_acceptable_input(
         query = TestQuery {
             name: "Big Dave".to_string(),
             timeout: Some(DEFAULT_TIMEOUT),
@@ -123,6 +164,7 @@ mod functions_only {
             action: TestStatus::Sleep,
             duration: 3600.,
         }),
+        validation_error = false,
         expected = http::StatusCode::NOT_ACCEPTABLE,
     ));
 }

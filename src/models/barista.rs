@@ -29,7 +29,7 @@ use crate::models::Ticket;
 pub struct Barista<Q, I, O, F>
 where
     Q: message::QueryType,
-    I: Serialize + DeserializeOwned,
+    I: Serialize + DeserializeOwned + Send + Sync,
     O: Serialize + DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
@@ -43,7 +43,7 @@ where
 impl<Q, I, O, F> Barista<Q, I, O, F>
 where
     Q: message::QueryType,
-    I: Serialize + DeserializeOwned,
+    I: Serialize + DeserializeOwned + Send + Sync,
     O: Serialize + DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {

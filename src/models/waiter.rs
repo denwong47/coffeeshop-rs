@@ -30,7 +30,7 @@ const LOG_TARGET: &str = "coffeeshop::models::waiter";
 pub struct Waiter<Q, I, O, F>
 where
     Q: message::QueryType,
-    I: serde::Serialize + serde::de::DeserializeOwned,
+    I: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     O: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
@@ -49,7 +49,7 @@ where
 impl<Q, I, O, F> Waiter<Q, I, O, F>
 where
     Q: message::QueryType,
-    I: serde::Serialize + serde::de::DeserializeOwned,
+    I: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     O: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
@@ -132,9 +132,17 @@ where
         &self,
         input: message::CombinedInput<Q, I>,
     ) -> Result<(message::Ticket, Arc<Order>), CoffeeShopError> {
-        self.request_count.fetch_add(1, Ordering::Relaxed);
-
         let shop = self.shop();
+
+        // Validate the query prior to creating the ticket, to avoid unnecessary
+        // processing of invalid requests.
+        shop.coffee_machine.validate(&input.query, input.input.as_ref()).await
+        .inspect_err(
+            |err| crate::warn!(target: LOG_TARGET, "Validation failed, not pushing to SQS: {:#?}", err)
+        )
+        .map_err(CoffeeShopError::ErrorSchema)?;
+
+        self.request_count.fetch_add(1, Ordering::Relaxed);
 
         let ticket = helpers::sqs::put_ticket(shop.deref(), input, &shop.temp_dir).await?;
 

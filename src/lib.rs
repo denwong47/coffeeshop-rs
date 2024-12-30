@@ -7,7 +7,7 @@
 //!   into an AWS SQS standard queue, which will then
 
 pub mod errors;
-pub use errors::{CoffeeMachineError, CoffeeShopError};
+pub use errors::{CoffeeMachineError, CoffeeShopError, ValidationError};
 
 pub mod reexports {
     #[cfg(doc)]
@@ -16,6 +16,22 @@ pub mod reexports {
     /// Re-export the `async_trait` crate so that implementors of [`models::Machine`]
     /// can use it without concerns for mismatched versions.
     pub use async_trait;
+
+    /// Re-export the `axum` crate so that implementors of [`models::Machine`] can use it
+    /// without concerns for mismatched versions.
+    pub use axum;
+
+    /// Re-export the `serde` crate so that implementors of [`models::Machine`] can use it
+    /// without concerns for mismatched versions.
+    pub use serde;
+
+    /// Re-export the `serde_json` crate so that implementors of [`models::Machine`] can use it
+    /// without concerns for mismatched versions.
+    pub use serde_json;
+
+    /// Re-export the `uuid` crate so that implementors of [`models::Machine`] can use it
+    /// without concerns for mismatched versions.
+    pub use uuid;
 }
 
 pub mod helpers;

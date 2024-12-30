@@ -52,7 +52,7 @@ const SQS_QUEUE_PREFIX: &str = "task-queue-";
 pub struct Shop<Q, I, O, F>
 where
     Q: message::QueryType,
-    I: Serialize + DeserializeOwned,
+    I: Serialize + DeserializeOwned + Send + Sync,
     O: Serialize + DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
@@ -104,7 +104,7 @@ where
 impl<Q, I, O, F> Shop<Q, I, O, F>
 where
     Q: message::QueryType,
-    I: Serialize + DeserializeOwned,
+    I: Serialize + DeserializeOwned + Send + Sync,
     O: Serialize + DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {

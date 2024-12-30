@@ -2,7 +2,7 @@
 
 use crate::{
     models::{message, Machine, Ticket},
-    CoffeeMachineError,
+    CoffeeMachineError, ValidationError,
 };
 use axum::http;
 use serde::{Deserialize, Serialize};
@@ -95,53 +95,70 @@ impl Machine<TestQuery, TestPayload, TestResult> for TestMachine {
         query: &TestQuery,
         input: Option<&TestPayload>,
     ) -> message::MachineResult<TestResult> {
+        self.validate(query, input).await?;
+
+        let payload = input.unwrap();
+
+        // Simulate runtime errors.
+        // Assume these are not possible to validate.
+        if payload.action == TestStatus::Sleep {
+            // This is a contrived example to show how to return an error.
+            return Err(CoffeeMachineError::new(
+                http::StatusCode::NOT_ACCEPTABLE,
+                "NoSleepForYou".to_owned(),
+                Some(serde_json::json!({
+                    "message": format!(
+                        "{name} is not allowed to sleep.",
+                        name = query.name,
+                    ),
+                })),
+            ));
+        } else if &query.name == "Little Timmy" {
+            return Err(CoffeeMachineError::new(
+                http::StatusCode::FORBIDDEN,
+                "NoTimmy".to_owned(),
+                Some(serde_json::json!({
+                    "message": "Little Timmy is not allowed in the coffee shop.",
+                })),
+            ));
+        }
+
+        Ok(TestResult {
+            greetings: format!("Hello, {name}!", name = query.name),
+            narration: format!(
+                "You want to {action:?} for {duration:?} seconds.",
+                action = payload.action,
+                duration = payload.duration,
+            ),
+        })
+    }
+
+    async fn validator(
+        &self,
+        query: &TestQuery,
+        input: Option<&TestPayload>,
+    ) -> Result<(), ValidationError> {
+        let mut fields = ValidationError::new();
+
         if let Some(payload) = input {
-            if payload.action == TestStatus::Sleep {
-                // This is a contrived example to show how to return an error.
-                return Err(CoffeeMachineError::new(
-                    http::StatusCode::NOT_ACCEPTABLE,
-                    "NoSleepForYou".to_owned(),
-                    Some(serde_json::json!({
-                        "message": format!(
-                            "{name} is not allowed to sleep.",
-                            name = query.name,
-                        ),
-                    })),
-                ));
-            } else if query.name.is_empty() {
-                return Err(CoffeeMachineError::new(
-                    http::StatusCode::UNPROCESSABLE_ENTITY,
-                    "MissingName".to_owned(),
-                    Some(serde_json::json!({
-                        "message": "No name was provided.",
-                    })),
-                ));
-            } else if &query.name == "Little Timmy" {
-                return Err(CoffeeMachineError::new(
-                    http::StatusCode::FORBIDDEN,
-                    "NoTimmy".to_owned(),
-                    Some(serde_json::json!({
-                        "message": "Little Timmy is not allowed in the coffee shop.",
-                    })),
-                ));
+            if payload.duration < 0.0 {
+                fields.insert(
+                    "duration".to_owned(),
+                    "Duration cannot be negative.".to_owned(),
+                );
             }
 
-            Ok(TestResult {
-                greetings: format!("Hello, {name}!", name = query.name),
-                narration: format!(
-                    "You want to {action:?} for {duration:?} seconds.",
-                    action = payload.action,
-                    duration = payload.duration,
-                ),
-            })
+            if query.name.is_empty() {
+                fields.insert("name".to_owned(), "Name cannot be empty.".to_owned());
+            }
         } else {
-            Err(CoffeeMachineError::new(
-                http::StatusCode::BAD_REQUEST,
-                "MissingInput".to_owned(),
-                Some(serde_json::json!({
-                    "message": "No payload was provided.",
-                })),
-            ))
+            fields.insert("$body".to_owned(), "A POST Payload is required.".to_owned());
+        }
+
+        if fields.is_empty() {
+            Ok(())
+        } else {
+            Err(fields)
         }
     }
 }
