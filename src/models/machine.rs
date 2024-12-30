@@ -6,11 +6,25 @@ use serde::{de::DeserializeOwned, Serialize};
 use super::message;
 
 #[cfg(doc)]
-use super::Waiter;
+use super::{Shop, Waiter};
 
 /// A trait that defines the behavior of a coffee machine, i.e. the function
 /// that will be called when a ticket is received, and outputs the result
 /// to the DynamoDB table.
+///
+/// # Lifetime
+///
+/// A [`Machine`] is not required to have a `'static` lifetime, it just needs
+/// to be owned by the [`Shop`] and be available for that duration. It is
+/// possible - while not RESTful - to have a stateful machine that gives out
+/// different responses based on its state using [`RwLock`](tokio::sync::RwLock)
+/// or [`Mutex`](tokio::sync::Mutex) or the like.
+///
+/// However it is worth noting that the [`Machine`]s will not synchronise with
+/// each other across [`Shop`], unless you implement a mechanism to do so. Thus
+/// the internal state of the [`Machine`] should be considered ephemeral and
+/// typically limited to caching or other non-critical data. Use a database
+/// if you need to share state across multiple [`Machine`]s.
 ///
 /// # Note
 ///
