@@ -60,4 +60,4 @@ jobs:
       run: cargo clippy --all-targets --all-features --workspace -- -D warnings
     - name: Run tests
       # Run tests in release mode as compression tests are slow in debug mode
-      run: cargo test --release --workspace -- --nocapture
+      run: cargo test --release --workspace --features=test_on_ci -- --nocapture

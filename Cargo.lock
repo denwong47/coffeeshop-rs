@@ -719,10 +719,12 @@ dependencies = [
  "serde_json",
  "serde_with",
  "serial_test",
+ "socket2",
  "strum",
  "tempfile",
  "thiserror 2.0.6",
  "tokio",
+ "tokio_socket2",
  "uuid",
 ]
 
@@ -2550,6 +2552,16 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
+name = "tokio_socket2"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11447eba9c5b05fa99d3bb6c32dd8e50b10487fb4d7f369489345be046b5f4b3"
+dependencies = [
+ "socket2",
  "tokio",
 ]
 
