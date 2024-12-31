@@ -3,6 +3,7 @@ use prost::Message;
 use serde::{de::DeserializeOwned, Serialize};
 use socket2::SockAddr;
 use std::sync::{Arc, OnceLock, Weak};
+use tokio::sync::Notify;
 
 use crate::{helpers::multicast, CoffeeShopError};
 
@@ -280,40 +281,57 @@ where
     }
 
     /// Listen for announcements from other [`Announcer`]s as well as itself.
-    pub async fn listen_for_announcements(&self) -> Result<(), CoffeeShopError> {
+    pub async fn listen_for_announcements(
+        &self,
+        shutdown_signal: Arc<Notify>,
+    ) -> Result<(), CoffeeShopError> {
         let mut message_count: u64 = 0;
 
-        loop {
-            if let Ok((data, addr)) =
-                multicast::socket::receive_multicast(self.receiver(), DEFAULT_BUFFER_SIZE)
-                    .await
-                    .inspect_err(|err| {
+        // This is the main task that listens for multicast messages, to be raced against the shutdown signal.
+        let task = async {
+            loop {
+                if let Ok((data, addr)) =
+                    multicast::socket::receive_multicast(self.receiver(), DEFAULT_BUFFER_SIZE)
+                        .await
+                        .inspect_err(|err| {
+                            crate::error!(
+                                target: LOG_TARGET,
+                                "Failed to receive multicast message, skipping: {err}",
+                                err = err
+                            )
+                        })
+                {
+                    if self.received_message_handler(data, addr).await.is_ok() {
+                        crate::info!(
+                            target: LOG_TARGET,
+                            "Processed multicast message #{message_count} successfully."
+                        );
+                    } else {
                         crate::error!(
                             target: LOG_TARGET,
-                            "Failed to receive multicast message, skipping: {err}",
-                            err = err
+                            "Failed to process multicast message #{message_count}, skipping."
                         )
-                    })
-            {
-                if self.received_message_handler(data, addr).await.is_ok() {
-                    crate::info!(
-                        target: LOG_TARGET,
-                        "Processed multicast message #{message_count} successfully."
-                    );
+                    }
                 } else {
                     crate::error!(
                         target: LOG_TARGET,
-                        "Failed to process multicast message #{message_count}, skipping."
+                        "Failed to receive multicast message, skipping."
                     )
                 }
-            } else {
-                crate::error!(
-                    target: LOG_TARGET,
-                    "Failed to receive multicast message, skipping."
-                )
-            }
 
-            message_count = message_count.wrapping_add(1);
+                message_count = message_count.wrapping_add(1);
+            }
+        };
+
+        tokio::select! {
+            _ = shutdown_signal.notified() => {
+                crate::warn!(target: LOG_TARGET, "Received shutdown signal, terminating announcer.");
+                Ok(())
+            },
+            result = task => {
+                crate::error!(target: LOG_TARGET, "Failed to listen for announcements: {result:?}");
+                result
+            },
         }
     }
 }

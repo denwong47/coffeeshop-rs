@@ -1,7 +1,7 @@
 use axum::{body::Body, http, response::IntoResponse, Json};
 use thiserror::Error;
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 #[cfg(doc)]
 use crate::models::{Barista, Waiter};
@@ -124,7 +124,10 @@ pub enum CoffeeShopError {
     },
 
     #[error("HTTP Host failed: {0}")]
-    AxumError(axum::Error),
+    HTTPServerError(std::io::ErrorKind, std::io::Error),
+
+    #[error("Failed to bind listener to socket address {1}: {0}")]
+    ListenerCreationFailure(String, SocketAddr),
 
     #[error("Could not serialize the payload: {0}")]
     ResultBinaryConversionError(#[from] Box<bincode::ErrorKind>),
@@ -222,6 +225,12 @@ impl CoffeeShopError {
     pub fn from_multicast_io_error(error: std::io::Error) -> Self {
         // We don't need to care about unique temporary files here.
         CoffeeShopError::MulticastIOError(error.kind(), error)
+    }
+
+    /// Convenient method to create a [`CoffeeShopError::HTTPServerError`] variant from [`std::io::Error`].
+    pub fn from_server_io_error(error: std::io::Error) -> Self {
+        // We don't need to care about unique temporary files here.
+        CoffeeShopError::HTTPServerError(error.kind(), error)
     }
 
     /// Convenient method to map AWS SQS SDK errors to [`CoffeeShopError`].

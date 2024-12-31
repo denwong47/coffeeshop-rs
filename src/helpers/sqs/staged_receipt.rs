@@ -1,6 +1,6 @@
 use aws_sdk_sqs as sqs;
 
-use std::cell::OnceCell;
+use std::sync::OnceLock;
 
 use crate::{
     helpers::{serde::deserialize, sqs::HasSQSConfiguration},
@@ -36,7 +36,7 @@ where
     pub queue_url: String,
 
     /// Completed
-    completed: OnceCell<bool>,
+    completed: OnceLock<bool>,
 }
 
 impl<Q, I> StagedReceipt<Q, I>
@@ -51,7 +51,10 @@ where
     ) -> Result<Self, CoffeeShopError> {
         let client = sqs::Client::new(config.aws_config());
 
-        let timeout = timeout.unwrap_or(DEFAULT_WAIT_TIME);
+        let timeout = timeout.unwrap_or(DEFAULT_WAIT_TIME).min(
+            // The maximum wait time is 20 seconds, as per the AWS SQS documentation.
+            tokio::time::Duration::from_secs(20),
+        );
 
         let receive_results = client
             .receive_message()
@@ -114,7 +117,7 @@ where
                 message,
                 receipt_handle,
                 queue_url: config.sqs_queue_url().to_owned(),
-                completed: OnceCell::new(),
+                completed: OnceLock::new(),
             })
         } else {
             Err(CoffeeShopError::AWSSQSQueueEmpty(timeout))

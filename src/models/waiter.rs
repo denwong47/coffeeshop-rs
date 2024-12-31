@@ -16,6 +16,8 @@ use axum::{
     http::{header, StatusCode},
     response::IntoResponse,
 };
+use tokio::sync::Notify;
+use tower_http::{timeout::TimeoutLayer, trace::TraceLayer};
 
 use super::{
     message::{self, QueryType},
@@ -180,7 +182,7 @@ where
 
         // Wait for the order to complete.
         order
-            .wait_until_complete::<O, _>(shop.deref())
+            .wait_and_fetch_when_complete::<O, _>(shop.deref())
             .await
             .map(|result| {
                 result.map(|output| {
@@ -227,5 +229,97 @@ where
             Ok((ticket, _order)) => self.retrieve_order_with_timeout(ticket, timeout).await,
             Err(err) => err.into_response(),
         }
+    }
+}
+
+/// Implementation for the waiter where the query types are 'static.
+impl<Q, I, O, F> Waiter<Q, I, O, F>
+where
+    Q: message::QueryType + 'static,
+    I: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    O: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    F: Machine<Q, I, O> + 'static,
+{
+    /// Start an [`axum`] app and serve incoming requests.
+    pub async fn serve(
+        self: &Arc<Self>,
+        additional_routes: impl Iterator<
+            Item = (
+                &'static str,
+                axum::routing::method_routing::MethodRouter<()>,
+            ),
+        >,
+        shutdown_signal: Arc<Notify>,
+        max_execution_time: Option<tokio::time::Duration>,
+    ) -> Result<(), CoffeeShopError> {
+        let mut app = axum::Router::new()
+            .route(
+                "/status",
+                axum::routing::get({
+                    let arc_self = Arc::clone(self);
+
+                    || async move { arc_self.status().await }
+                }),
+            )
+            .route(
+                "/request",
+                axum::routing::post({
+                    let arc_self = Arc::clone(self);
+
+                    |Query(params): Query<Q>, body: Json<I>| async move {
+                        // Check if the request is synchronous or asynchronous,
+                        // and call the appropriate method.
+                        // Pre-convert all errors to responses, so that the typing
+                        // is consistent.
+                        if params.is_async() {
+                            arc_self
+                                .async_request(Query(params), body)
+                                .await
+                                .into_response()
+                        } else {
+                            arc_self.request(Query(params), body).await.into_response()
+                        }
+                    }
+                }),
+            )
+            .route(
+                "/retrieve",
+                axum::routing::get({
+                    let arc_self = Arc::clone(self);
+
+                    |query| async move { arc_self.async_retrieve(query).await }
+                }),
+            );
+
+        // Add additional routes to the app.
+        app = additional_routes.fold(app, |app, (path, handler)| app.route(path, handler));
+
+        // Add the trace and timeout layers to the app.
+        if let Some(max_execution_time) = max_execution_time {
+            app = app.layer((
+                TraceLayer::new_for_http(),
+                TimeoutLayer::new(max_execution_time),
+            ))
+        }
+
+        let listener = tokio::net::TcpListener::bind(self.shop().config.host_addr())
+            .await
+            .map_err(|err| {
+                CoffeeShopError::ListenerCreationFailure(
+                    err.to_string(),
+                    self.shop().config.host_addr(),
+                )
+            })?;
+        let server = axum::serve(listener, app)
+            .with_graceful_shutdown(async move { shutdown_signal.notified().await });
+
+        let result = server.await.map_err(CoffeeShopError::from_server_io_error);
+
+        crate::warn!(
+            target: LOG_TARGET,
+            "The waiter has stopped serving requests."
+        );
+
+        result
     }
 }

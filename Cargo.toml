@@ -28,7 +28,6 @@ gethostname = "0.5.0"
 gzp = "0.11.3"
 hashbrown = "0.15.2"
 http-serde = "2.1.1"
-itertools = "0.13.0"
 log = { version = "0.4.22", features = ["std"], optional = true}
 num_cpus = "1.16.0"
 prost = "0.13.4"
@@ -43,6 +42,7 @@ tempfile = "3.14.0"
 thiserror = "2.0.6"
 tokio = { version = "1.42.0", features = ["fs", "macros", "rt-multi-thread", "signal", "sync", "time"] }
 tokio_socket2 = "0.1.1"
+tower-http = { version = "0.6.2", features = ["timeout", "trace"] }
 uuid = { version = "1.11.0", features = ["v4"] }
 
 [build-dependencies]

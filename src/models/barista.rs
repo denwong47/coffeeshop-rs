@@ -3,6 +3,7 @@ use std::{
     ops::Deref,
     sync::{atomic::AtomicUsize, Arc, Weak},
 };
+use tokio::sync::Notify;
 
 use super::{
     message::{self, MulticastMessage, ProcessResult},
@@ -12,6 +13,8 @@ use super::{
 use crate::{helpers, models::message::MulticastMessageStatus, CoffeeShopError};
 
 const LOG_TARGET: &str = "coffeeshop::models::barista";
+
+const BARISTA_REPORT_IDLE: tokio::time::Duration = tokio::time::Duration::from_secs(20);
 
 #[cfg(doc)]
 use crate::models::Ticket;
@@ -70,26 +73,54 @@ where
     ///
     /// This function never returns, and will loop indefinitely until the
     /// program is terminated.
-    pub async fn serve(&self, timeout: Option<tokio::time::Duration>) {
-        loop {
-            crate::info!(
-                target: LOG_TARGET,
-                "A Barista is waiting for the next ticket...",
-            );
-            match self.process_next_ticket(timeout).await {
-                Ok(_) => (),
-                Err(crate::CoffeeShopError::AWSSQSQueueEmpty(duration)) => crate::info!(
+    pub async fn serve(&self, shutdown_signal: Arc<Notify>) -> Result<(), CoffeeShopError> {
+        let task = async {
+            loop {
+                crate::info!(
                     target: LOG_TARGET,
-                    "No tickets in the queue after {duration:?}; trying again.",
-                    duration = duration,
-                ),
-                Err(err) => crate::error!(
-                    target: LOG_TARGET,
-                    "Error processing ticket: {error}",
-                    error = err,
-                ),
+                    "A Barista is waiting for the next ticket...",
+                );
+                match self.process_next_ticket(Some(BARISTA_REPORT_IDLE)).await {
+                    Ok(_) => (),
+                    Err(crate::CoffeeShopError::AWSSQSQueueEmpty(duration)) => crate::info!(
+                        target: LOG_TARGET,
+                        "No tickets in the queue after {duration:?}; trying again.",
+                        duration = duration,
+                    ),
+                    Err(err) => crate::error!(
+                        target: LOG_TARGET,
+                        "Error processing ticket: {error}",
+                        error = err,
+                    ),
+                }
             }
+        };
+
+        tokio::select! {
+            _ = shutdown_signal.notified() => {
+                crate::warn!(
+                    target: LOG_TARGET,
+                    "Received shutdown signal, terminating barista."
+                );
+
+                Ok(())
+            },
+            _ = task => {
+                unreachable!("The barista task should never return.")
+            },
         }
+    }
+
+    /// Serve all the baristas in the list.
+    pub async fn serve_all(
+        baristas: &[Self],
+        shutdown_signal: Arc<Notify>,
+    ) -> Result<(), CoffeeShopError> {
+        let tasks = baristas
+            .iter()
+            .map(|barista| barista.serve(shutdown_signal.clone()));
+
+        futures::future::try_join_all(tasks).await.map(|_| ())
     }
 
     /// Process a ticket from the SQS queue.

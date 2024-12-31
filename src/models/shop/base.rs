@@ -92,7 +92,7 @@ where
     pub(crate) temp_dir: tempfile::TempDir,
 
     /// Reference to the waiter that will serve incoming requests.
-    pub waiter: Waiter<Q, I, O, F>,
+    pub waiter: Arc<Waiter<Q, I, O, F>>,
 
     /// Reference to the baristas that will process the tickets.
     pub baristas: Vec<Barista<Q, I, O, F>>,
@@ -149,7 +149,7 @@ where
             config,
             aws_config,
             temp_dir,
-            waiter: Waiter::new(me.clone()),
+            waiter: Arc::new(Waiter::new(me.clone())),
             baristas: (0..barista_count)
                 .map(|_| Barista::new(me.clone()))
                 .collect::<Vec<Barista<Q, I, O, F>>>(),
@@ -164,14 +164,6 @@ where
         }
 
         Ok(shop)
-    }
-
-    /// Open the shop, start listening for requests.
-    pub async fn open(&self) -> Result<(), CoffeeShopError> {
-        // Report the AWS login status in order to confirm the AWS credentials.
-        helpers::sts::report_aws_login(Some(&self.aws_config)).await?;
-
-        unimplemented!()
     }
 
     // ORDERS RELATED METHODS

@@ -11,6 +11,12 @@ use crate::{
 use axum::http;
 use serde::{Deserialize, Serialize};
 
+/// Re-export the helpers for the test models.
+#[allow(unused_imports)]
+pub use crate::helpers::{
+    aws::HasAWSSdkConfig, dynamodb::HasDynamoDBConfiguration, sqs::HasSQSConfiguration,
+};
+
 const LOG_TARGET: &str = "coffeeshop::models::test";
 
 /// The default time to live for the results in the DynamoDB table.
@@ -173,7 +179,9 @@ impl Machine<TestQuery, TestPayload, TestResult> for TestMachine {
 }
 
 /// Create a new shop for testing.
-pub async fn new_shop() -> Arc<Shop<TestQuery, TestPayload, TestResult, TestMachine>> {
+pub async fn new_shop(
+    barista_count: usize,
+) -> Arc<Shop<TestQuery, TestPayload, TestResult, TestMachine>> {
     Shop::new(
         LOG_TARGET.to_owned(),
         TestMachine::new(),
@@ -187,7 +195,7 @@ pub async fn new_shop() -> Arc<Shop<TestQuery, TestPayload, TestResult, TestMach
                 .await
                 .expect("Failed to get AWS configuration."),
         ),
-        1,
+        barista_count,
     )
     .await
     .expect("Failed to create the shop.")

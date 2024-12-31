@@ -62,11 +62,19 @@ pub struct Config {
     #[arg(long, default_value = None)]
     pub dynamodb_table: Option<String>,
 
+    /// The partition key to use with the DynamoDB table.
     #[arg(long, default_value = DEFAULT_DYNAMODB_PARTITION_KEY, alias = "dynamodb_primary_key")]
     pub dynamodb_partition_key: String,
 
+    /// The number of seconds to keep the results in the DynamoDB table before it can
+    /// get purged by AWS.
     #[arg(long, default_value_t = DEFAULT_RESULT_TTL)]
     pub result_ttl: f32,
+
+    /// The maximum time a ticket can be processed before it is killed by the
+    /// HTTP server.
+    #[arg(long, default_value = None)]
+    pub max_execution_time: Option<f32>,
 
     /// The AWS SQS queue URL to use.
     ///
@@ -93,6 +101,7 @@ impl Default for Config {
             dynamodb_table: None,
             dynamodb_partition_key: DEFAULT_DYNAMODB_PARTITION_KEY.to_owned(),
             result_ttl: DEFAULT_RESULT_TTL,
+            max_execution_time: None,
             sqs_queue: None,
         }
     }
@@ -198,6 +207,12 @@ impl Config {
     /// Get the DynamoDB TTL in [`tokio::time::Duration`] format.
     pub fn dynamodb_ttl(&self) -> tokio::time::Duration {
         tokio::time::Duration::from_secs_f32(self.result_ttl)
+    }
+
+    /// Get the maximum execution time in [`tokio::time::Duration`] format.
+    pub fn max_execution_time(&self) -> Option<tokio::time::Duration> {
+        self.max_execution_time
+            .map(tokio::time::Duration::from_secs_f32)
     }
 }
 

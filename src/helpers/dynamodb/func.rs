@@ -1,7 +1,6 @@
 //! Helper functions to interact with DynamoDB as a key-value result store.
 
 use aws_sdk_dynamodb as dynamodb;
-use itertools::Itertools;
 use serde::de::DeserializeOwned;
 use std::vec;
 
@@ -167,13 +166,30 @@ where
 
     let chunks_count = (tickets.len() as f32 / 100.).ceil() as usize;
     let chunk_size = (tickets.len() as f32 / chunks_count as f32).ceil() as usize;
-    let chunks = tickets.chunks(chunk_size);
+    // We can't use itertools here because `chunks` actually uses RefCell, which is not Send.
+    let chunks = {
+        let mut tickets = tickets.collect::<Vec<_>>();
+        let mut chunks = vec![];
+
+        loop {
+            if tickets.len() <= chunk_size {
+                let mut middleman = vec![];
+                std::mem::swap(&mut tickets, &mut middleman);
+                chunks.push(middleman);
+                break;
+            } else {
+                chunks.push(tickets.split_off(chunk_size));
+            }
+        }
+
+        chunks
+    };
 
     futures::future::try_join_all(
         // Iterate the chunks and get the items for each chunk.
-        chunks
-            .into_iter()
-            .map(|chunk| get_items_by_tickets_unchecked::<_>(config, chunk, projection_expression)),
+        chunks.into_iter().map(|chunk| {
+            get_items_by_tickets_unchecked::<_>(config, chunk.into_iter(), projection_expression)
+        }),
     )
     .await
     .map(|results| results.into_iter().flatten().collect())

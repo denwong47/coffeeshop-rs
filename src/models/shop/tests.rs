@@ -7,7 +7,7 @@ use axum::http;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
-use crate::models::test::*;
+use crate::{models::test::*, CoffeeShopError};
 
 const DEFAULT_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(3);
 
@@ -29,10 +29,12 @@ mod functions_only {
         ) => {
             #[tokio::test]
             #[serial_test::serial(uses_sqs)]
+            #[serial_test::serial(uses_dynamodb)]
+            #[serial_test::serial(uses_multicast)]
             #[cfg(feature = "test_on_aws")]
             /// Testing the inner workings of the shop without actually opening it.
             async fn $name() {
-                let shop = new_shop().await;
+                let shop = new_shop(1).await;
 
                 let waiter = &shop.waiter;
                 let barista = &shop.baristas.first().expect("No baristas available.");
@@ -153,4 +155,117 @@ mod functions_only {
         validation_error = false,
         expected = http::StatusCode::NOT_ACCEPTABLE,
     ));
+}
+
+mod announcer {
+    use crate::models::message::{MulticastMessage, MulticastMessageKind, MulticastMessageStatus};
+
+    use super::*;
+
+    const LOG_TARGET: &str = "coffeeshop::models::shop::tests::announcer";
+
+    #[tokio::test]
+    #[serial_test::serial(uses_multicast)]
+    async fn test_multicast() {
+        let shop = new_shop(1).await;
+
+        let ticket = get_random_ticket();
+
+        let message_received = Arc::new(Notify::new());
+
+        let sender_workload = async {
+            crate::info!(target: LOG_TARGET, "Sending message to multicast channel...");
+            shop.announcer
+                .send_message(MulticastMessage::new(
+                    &shop.name,
+                    &ticket,
+                    MulticastMessageKind::Ticket,
+                    MulticastMessageStatus::Complete,
+                ))
+                .await
+        };
+
+        let receiver_workload = async {
+            let start_time = tokio::time::Instant::now();
+            let message_received = message_received.clone();
+
+            crate::info!(target: LOG_TARGET, "Spawning order for ticket {}...", ticket);
+            let order = shop.spawn_order(ticket.clone()).await;
+
+            crate::info!(target: LOG_TARGET, "Waiting for ticket to be finished...");
+
+            // Only wait for the order to complete; there is nothing to fetch.
+            let result = tokio::select! {
+                _ = tokio::time::sleep(DEFAULT_TIMEOUT) => {
+                    crate::error!(target: LOG_TARGET, "Order for ticket {} timed out.", ticket);
+                    Err(CoffeeShopError::RetrieveTimeout(start_time.elapsed()))
+                },
+                result = order.wait_until_complete() => {
+                    result
+                },
+            };
+
+            message_received.notify_waiters();
+
+            result
+        };
+
+        let listener_workload = async {
+            let message_received = message_received.clone();
+            crate::info!(target: LOG_TARGET, "Listening for multicast messages...");
+            shop.announcer
+                .listen_for_announcements(message_received.clone())
+                .await
+        };
+
+        match tokio::try_join!(listener_workload, receiver_workload, sender_workload,) {
+            Ok(_) => {
+                crate::info!(target: LOG_TARGET, "All workloads completed successfully.");
+            }
+            Err(err) => {
+                crate::error!(target: LOG_TARGET, "One or more workloads failed: {err:?}");
+                panic!("One or more workloads failed: {err:?}");
+            }
+        }
+    }
+}
+
+/// Test that opens the shop.
+mod open {
+    use super::*;
+
+    const LOG_TARGET: &str = "coffeeshop::models::shop::tests::open";
+
+    #[tokio::test]
+    #[serial_test::serial(uses_sqs)]
+    #[serial_test::serial(uses_dynamodb)]
+    #[serial_test::serial(uses_multicast)]
+    #[cfg(feature = "test_on_aws")]
+    async fn test_open() {
+        let shop = new_shop(3).await;
+
+        let shutdown_signal = Arc::new(Notify::new());
+
+        let workload = async { shop.open(Some(shutdown_signal.clone())).await };
+
+        let termination_signal = async {
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            crate::info!(target: LOG_TARGET, "Sending termination signal...");
+            shutdown_signal.clone().notify_waiters();
+
+            Ok(())
+        };
+
+        let result = tokio::try_join!(workload, termination_signal,);
+
+        match result {
+            Ok(_) => {
+                crate::info!(target: LOG_TARGET, "All workloads completed successfully.");
+            }
+            Err(err) => {
+                crate::error!(target: LOG_TARGET, "One or more workloads failed: {err:?}");
+                panic!("One or more workloads failed: {err:?}");
+            }
+        }
+    }
 }

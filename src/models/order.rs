@@ -17,7 +17,7 @@ const LOG_TARGET: &str = "coffeeshop::models::order";
 pub type Orders = HashMap<String, Arc<Order>>;
 
 /// A [`Delivery`] is a structure that contains:
-/// - [`OnceCell`](tokio::sync::OnceCell) which will be populated with the processed ticket
+/// - [`OnceLock`](std::sync::OnceLock) which will be populated with the processed ticket
 ///   once it is ready, and
 /// - [`Notify`](tokio::sync::Notify) instance to notify the [`Waiter`] that the ticket is ready.
 ///
@@ -28,7 +28,7 @@ pub struct Order {
     ticket: Ticket,
 
     /// The processed ticket result.
-    pub result: tokio::sync::OnceCell<(tokio::time::Instant, bool)>,
+    pub result: std::sync::OnceLock<(tokio::time::Instant, bool)>,
 
     /// A [`Notify`](tokio::sync::Notify) instance to notify the waiter that the ticket is ready.
     notify: tokio::sync::Notify,
@@ -39,7 +39,7 @@ impl Order {
     pub fn new(ticket: Ticket) -> Self {
         Self {
             ticket,
-            result: tokio::sync::OnceCell::new(),
+            result: std::sync::OnceLock::new(),
             notify: tokio::sync::Notify::new(),
         }
     }
@@ -107,30 +107,19 @@ impl Order {
         helpers::dynamodb::get_process_result_by_ticket(config, &self.ticket).await
     }
 
-    /// Wait indefinitely for the ticket to be ready, and get the result when it is.
-    ///
-    /// The version of this function with a timeout is implemented as part of [`Shop`].
-    pub async fn wait_until_complete<O, C>(
-        &self,
-        config: &C,
-    ) -> Result<ProcessResultExport<O>, CoffeeShopError>
-    where
-        O: DeserializeOwned + Send + Sync,
-        C: helpers::dynamodb::HasDynamoDBConfiguration,
-    {
+    /// Wait indefinitely for the ticket to be ready, and return when it is.
+    pub async fn wait_until_complete(&self) -> Result<(), CoffeeShopError> {
         // Wait until the result is set.
         loop {
             if let Some((_, status)) = self.result() {
                 crate::info!(
                     target: LOG_TARGET,
-                    "Ticket {ticket} is ready, status: {status}. Fetching the result from DynamoDB...",
+                    "Ticket {ticket} is ready, status: {status}.",
                     ticket = self.ticket,
                     status = status,
                 );
 
-                // Fetch the result from the DynamoDB if there is a status available.
-                // Return the result if it is set.
-                return self.fetch(config).await;
+                return Ok(());
             } else {
                 // Otherwise, wait for the notification.
                 // This loop is typically only run once.
@@ -138,13 +127,37 @@ impl Order {
             }
         }
     }
+
+    /// Wait for the ticket to be ready, and get the result when it is.
+    ///
+    /// The version of this function with a timeout is implemented as part of [`Shop`].
+    pub async fn wait_and_fetch_when_complete<O, C>(
+        &self,
+        config: &C,
+    ) -> Result<ProcessResultExport<O>, CoffeeShopError>
+    where
+        O: DeserializeOwned + Send + Sync,
+        C: helpers::dynamodb::HasDynamoDBConfiguration,
+    {
+        self.wait_until_complete().await?;
+
+        crate::info!(
+            target: LOG_TARGET,
+            "Ticket {ticket} is ready, fetching the result...",
+            ticket = self.ticket,
+        );
+
+        // Fetch the result from the DynamoDB if there is a status available.
+        // Return the result if it is set.
+        self.fetch(config).await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const STALE_AGE: tokio::time::Duration = tokio::time::Duration::from_secs(30);
+    const STALE_AGE: tokio::time::Duration = tokio::time::Duration::from_secs(20);
 
     macro_rules! create_test {
         ($name:ident(
