@@ -11,7 +11,7 @@ use crate::models::{Barista, Shop, Waiter};
 use super::message::ProcessResultExport;
 
 /// The log target for this module.
-const LOG_TARGET: &str = "coffee_shop::models::order";
+const LOG_TARGET: &str = "coffeeshop::models::order";
 
 /// A collection of [`Order`]s that are being processed.
 pub type Orders = HashMap<String, Arc<Order>>;

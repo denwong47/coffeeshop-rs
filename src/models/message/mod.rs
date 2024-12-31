@@ -10,6 +10,9 @@ pub use metadata::*;
 mod process_result;
 pub use process_result::*;
 
+mod proto;
+pub use proto::*;
+
 mod query;
 pub use query::*;
 

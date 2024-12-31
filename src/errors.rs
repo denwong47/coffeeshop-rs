@@ -116,8 +116,12 @@ pub enum CoffeeShopError {
     #[error("{0:?} is not a valid multicast address.")]
     InvalidMulticastAddress(IpAddr),
 
-    #[error("Received an invalid {field} in MulticastMessage: {value}")]
-    InvalidMulticastMessage { field: &'static str, value: String },
+    #[error("Received an invalid MulticastMessage from {addr}.")]
+    InvalidMulticastMessage {
+        data: Vec<u8>,
+        addr: String,
+        error: prost::DecodeError,
+    },
 
     #[error("HTTP Host failed: {0}")]
     AxumError(axum::Error),
@@ -148,6 +152,9 @@ pub enum CoffeeShopError {
 
     #[error("An IOError::{0} had occurred: {1}")]
     IOError(std::io::ErrorKind, std::io::Error),
+
+    #[error("An IOError::{0} had occurred during multicast operations: {1}")]
+    MulticastIOError(std::io::ErrorKind, std::io::Error),
 
     #[error("Timed out awaiting results after {0:?} seconds")]
     RetrieveTimeout(tokio::time::Duration),
@@ -209,6 +216,12 @@ impl CoffeeShopError {
         } else {
             CoffeeShopError::IOError(error.kind(), error)
         }
+    }
+
+    /// Convenient method to create a [`CoffeeShopError::MulticastIOError`] variant from [`std::io::Error`].
+    pub fn from_multicast_io_error(error: std::io::Error) -> Self {
+        // We don't need to care about unique temporary files here.
+        CoffeeShopError::MulticastIOError(error.kind(), error)
     }
 
     /// Convenient method to map AWS SQS SDK errors to [`CoffeeShopError`].

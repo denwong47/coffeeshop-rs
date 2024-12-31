@@ -1,11 +1,20 @@
 //! Test models for testing the message module.
+//!
+use std::sync::Arc;
 
 use crate::{
-    models::{message, Machine, Ticket},
+    cli::Config,
+    helpers,
+    models::{message, Machine, Shop, Ticket},
     CoffeeMachineError, ValidationError,
 };
 use axum::http;
 use serde::{Deserialize, Serialize};
+
+const LOG_TARGET: &str = "coffeeshop::models::test";
+
+/// The default time to live for the results in the DynamoDB table.
+pub const STALE_AGE: tokio::time::Duration = tokio::time::Duration::from_secs(60);
 
 /// Get the queue URL from the environment variables.
 ///
@@ -161,4 +170,25 @@ impl Machine<TestQuery, TestPayload, TestResult> for TestMachine {
             Err(fields)
         }
     }
+}
+
+/// Create a new shop for testing.
+pub async fn new_shop() -> Arc<Shop<TestQuery, TestPayload, TestResult, TestMachine>> {
+    Shop::new(
+        LOG_TARGET.to_owned(),
+        TestMachine::new(),
+        Config::default()
+            .with_dynamodb_table(&get_dynamodb_table())
+            .with_dynamodb_partition_key("identifier")
+            .with_sqs_queue(get_queue_url())
+            .with_result_ttl(STALE_AGE.as_secs_f32()),
+        Some(
+            helpers::aws::get_aws_config()
+                .await
+                .expect("Failed to get AWS configuration."),
+        ),
+        1,
+    )
+    .await
+    .expect("Failed to create the shop.")
 }

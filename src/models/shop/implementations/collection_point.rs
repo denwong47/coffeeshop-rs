@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 #[cfg(doc)]
 use crate::models::{Barista, Order, Waiter};
 
-const LOG_TARGET: &str = "coffee_shop::models::collection_point";
+const LOG_TARGET: &str = "coffeeshop::models::collection_point";
 
 /// A [`CollectionPoint`] is a behaviour of a [`Shop`] that:
 /// - Monitors the orders on DynamoDB that is flagged by the [`Waiter`]s

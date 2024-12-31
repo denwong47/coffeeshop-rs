@@ -1,17 +1,13 @@
-//! Unified interface for the creation of sockets.
-
-use std::net::SocketAddr;
-use std::{
-    io,
-    net::{IpAddr, Ipv4Addr},
-};
+//! Unified interface for the creation of sockets, and low-level multicast operations.
 
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+use crate::CoffeeShopError;
 
 const LOG_TARGET: &str = "coffeeshop::helpers::multicast::socket";
 
-/// The async socket type used in this crate.
-pub use tokio_socket2::TokioSocket2 as AsyncSocket;
+use super::AsyncSocket;
 
 /// A helper function to describe a [`SockAddr`].
 ///
@@ -42,22 +38,25 @@ pub fn describe_socket_addr(socket_addr: &SocketAddr) -> String {
 /// - non-blocking,
 /// - allow the reuse of the address, and
 /// - bound to the given address.
-pub fn create_udp(addr: &SocketAddr) -> io::Result<AsyncSocket> {
-    let domain = Domain::for_address(*addr);
+pub fn create_udp(addr: &SocketAddr) -> Result<AsyncSocket, CoffeeShopError> {
+    let builder = || {
+        let domain = Domain::for_address(*addr);
+        let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
 
-    let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
+        socket.set_nonblocking(true)?;
+        socket.set_reuse_address(true)?;
+        socket.bind(&SockAddr::from(*addr))?;
 
-    socket.set_nonblocking(true)?;
-    socket.set_reuse_address(true)?;
-    socket.bind(&SockAddr::from(*addr))?;
+        AsyncSocket::new(socket)
+    };
 
-    AsyncSocket::new(socket)
+    builder().map_err(CoffeeShopError::from_multicast_io_error)
 }
 
 /// A short hand function to create a UDP socket bound to all IPv4 interfaces.
 ///
 /// This is useful for creating a sender socket.
-pub fn create_udp_all_v4_interfaces(port: u16) -> io::Result<AsyncSocket> {
+pub fn create_udp_all_v4_interfaces(port: u16) -> Result<AsyncSocket, CoffeeShopError> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     create_udp(&addr)
 }
@@ -65,30 +64,29 @@ pub fn create_udp_all_v4_interfaces(port: u16) -> io::Result<AsyncSocket> {
 /// A helper function to set a socket to join a multicast address.
 ///
 /// The resultant socket will listen for multicast messages on all interfaces.
-pub fn join_multicast(asocket: &AsyncSocket, addr: &SocketAddr) -> io::Result<()> {
+pub fn join_multicast(asocket: &AsyncSocket, addr: &SocketAddr) -> Result<(), CoffeeShopError> {
     let socket = asocket.get_ref();
 
     let ip_addr = addr.ip();
 
     if !ip_addr.is_multicast() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("Address {ip_addr} is not a multicast address"),
-        ));
+        return Err(CoffeeShopError::InvalidConfiguration {
+            field: "multicast_host",
+            message: format!("Address {ip_addr} is not a multicast address"),
+        });
     }
 
+    // This block creates an io::Error; needs to map it to a CoffeeShopError.
     match ip_addr {
-        IpAddr::V4(ref mdns_v4) => {
-            socket.join_multicast_v4(mdns_v4, &Ipv4Addr::new(0, 0, 0, 0))?;
-        }
+        IpAddr::V4(ref mdns_v4) => socket.join_multicast_v4(mdns_v4, &Ipv4Addr::new(0, 0, 0, 0)),
         IpAddr::V6(ref mdns_v6) => {
             // This does not work on macOS which REQUIRES an interface to be specified.
-            socket.join_multicast_v6(mdns_v6, 0)?;
-            socket.set_only_v6(true)?;
+            socket
+                .join_multicast_v6(mdns_v6, 0)
+                .and_then(|_| socket.set_only_v6(true))
         }
-    };
-
-    Ok(())
+    }
+    .map_err(CoffeeShopError::from_multicast_io_error)
 }
 
 /// A helper function to send a multicast message.
@@ -96,7 +94,7 @@ pub async fn send_multicast(
     asocket: &AsyncSocket,
     addr: &SocketAddr,
     data: &[u8],
-) -> io::Result<usize> {
+) -> Result<usize, CoffeeShopError> {
     crate::debug!(
         target: LOG_TARGET,
         "Sending {} bytes to {:?}...",
@@ -106,13 +104,14 @@ pub async fn send_multicast(
     asocket
         .write(|socket| socket.send_to(data, &SockAddr::from(*addr)))
         .await
+        .map_err(CoffeeShopError::from_multicast_io_error)
 }
 
 /// A helper function to receive a multicast message.
 pub async fn receive_multicast(
     asocket: &AsyncSocket,
     buffer_size: usize,
-) -> io::Result<(Vec<u8>, SockAddr)> {
+) -> Result<(Vec<u8>, SockAddr), CoffeeShopError> {
     let mut inner_buffer = vec![core::mem::MaybeUninit::uninit(); buffer_size];
     crate::debug!(target: LOG_TARGET, "Waiting for message...");
     let result = asocket
@@ -120,22 +119,24 @@ pub async fn receive_multicast(
         .await;
     crate::debug!(target: LOG_TARGET, "Received message.");
 
-    result.map(|(size, addr)| {
-        crate::debug!(
-            target: LOG_TARGET,
-            "Received {} bytes from {:?}.",
-            size,
-            describe_sock_addr(&addr)
-        );
+    result
+        .map(|(size, addr)| {
+            crate::debug!(
+                target: LOG_TARGET,
+                "Received {} bytes from {:?}.",
+                size,
+                describe_sock_addr(&addr)
+            );
 
-        // Only take the initialized part of the buffer.
-        (
-            (0..size)
-                .map(|i| unsafe { inner_buffer[i].assume_init() })
-                .collect::<Vec<_>>(),
-            addr,
-        )
-    })
+            // Only take the initialized part of the buffer.
+            (
+                (0..size)
+                    .map(|i| unsafe { inner_buffer[i].assume_init() })
+                    .collect::<Vec<_>>(),
+                addr,
+            )
+        })
+        .map_err(CoffeeShopError::from_multicast_io_error)
 }
 
 /// Do not run these tests in CI.
@@ -144,6 +145,7 @@ pub async fn receive_multicast(
 mod test {
     use super::super::test;
     use super::*;
+    use std::io;
 
     use serial_test::serial;
 
@@ -192,7 +194,8 @@ mod test {
         }
 
         // Wait for the listener to finish, with a timeout.
-        // Convert all errors to io::Error.
+        // Convert all errors to io::Error; we could use CoffeeShopError, but it's a test,
+        // lets not complicate things.
         for received_data in tokio::time::timeout(tokio::time::Duration::from_secs(1), listener)
             .await
             .map_err(|timeout| io::Error::new(io::ErrorKind::TimedOut, timeout))

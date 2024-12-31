@@ -3,7 +3,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::{marker::PhantomData, sync::Arc};
 use tokio::sync::RwLock;
 
-use super::super::{message, Barista, Machine, Order, Orders, Ticket, Waiter};
+use super::super::{message, Announcer, Barista, Machine, Order, Orders, Ticket, Waiter};
 use crate::{cli::Config, helpers, CoffeeShopError};
 
 /// The default prefix for dynamodb table.
@@ -97,6 +97,9 @@ where
     /// Reference to the baristas that will process the tickets.
     pub baristas: Vec<Barista<Q, I, O, F>>,
 
+    /// Reference to the announcer that will announce the ticket is ready.
+    pub announcer: Announcer<Q, I, O, F>,
+
     /// Phantom data to attach the input and output types to the shop.
     _phantom: PhantomData<(Q, I, O)>,
 }
@@ -136,7 +139,8 @@ where
 
         let temp_dir = tempfile::TempDir::new()
             .map_err(|err| CoffeeShopError::TempDirCreationFailure(err.to_string()))?;
-        Ok(Arc::new_cyclic(|me| Self {
+
+        let shop = Arc::new_cyclic(|me| Self {
             name,
             orders: HashMap::new().into(),
             coffee_machine,
@@ -149,8 +153,17 @@ where
             baristas: (0..barista_count)
                 .map(|_| Barista::new(me.clone()))
                 .collect::<Vec<Barista<Q, I, O, F>>>(),
+            announcer: Announcer::new(me.clone()),
             _phantom: PhantomData,
-        }))
+        });
+
+        // Perform any initialization that requires Arc access to the shop.
+        '_init: {
+            // Initialize the announcer, which instantiates the async sockets for multicast.
+            shop.announcer.init()?;
+        }
+
+        Ok(shop)
     }
 
     /// Open the shop, start listening for requests.
@@ -159,6 +172,19 @@ where
         helpers::sts::report_aws_login(Some(&self.aws_config)).await?;
 
         unimplemented!()
+    }
+
+    // ORDERS RELATED METHODS
+    // TODO - Move these to a separate module.
+
+    /// Check if this shop has an order for a given ticket.
+    pub async fn has_order(&self, ticket: &Ticket) -> bool {
+        self.orders.read().await.contains_key(ticket)
+    }
+
+    /// Get the order for a given ticket in the shop.
+    pub async fn get_order(&self, ticket: &Ticket) -> Option<Arc<Order>> {
+        self.orders.read().await.get(ticket).cloned()
     }
 
     /// Spawn a [`Order`] order for a given [`Ticket`] in the shop.

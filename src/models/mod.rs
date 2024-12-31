@@ -15,6 +15,9 @@
 //! - [`message`]: The module that contains the request and response structs for
 //!   internal communication.
 
+mod announcer;
+pub use announcer::Announcer;
+
 mod barista;
 pub use barista::Barista;
 
@@ -26,9 +29,6 @@ pub use shop::*;
 
 mod machine;
 pub use machine::Machine;
-
-mod proto;
-pub use proto::MulticastMessage;
 
 mod waiter;
 pub use waiter::*;

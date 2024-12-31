@@ -5,11 +5,11 @@ use std::{
 };
 
 use super::{
-    message::{self, ProcessResult},
+    message::{self, MulticastMessage, ProcessResult},
     Machine, Shop,
 };
 
-use crate::{helpers, CoffeeShopError};
+use crate::{helpers, models::message::MulticastMessageStatus, CoffeeShopError};
 
 const LOG_TARGET: &str = "coffeeshop::models::barista";
 
@@ -123,6 +123,14 @@ where
         let result = async {
             // Process the ticket.
             let process_result = self.process_ticket(&receipt).await;
+            let status = if process_result.is_ok() {
+                // If the processing is successful, mark the ticket as complete.
+                MulticastMessageStatus::Complete
+            } else {
+                // If the machine failed to process it, there is not point retrying,
+                // so mark it as rejected; which is different from failure.
+                MulticastMessageStatus::Rejected
+            };
 
             // Send the result to DynamoDB.
             helpers::dynamodb::put_process_result(
@@ -139,18 +147,46 @@ where
                 ticket=&receipt.ticket,
             );
 
-            Ok::<_, CoffeeShopError>(())
+            Ok::<_, CoffeeShopError>(status)
         }
         .await;
 
+        let ticket = receipt.ticket.clone();
+        let status = if let Ok(status) = result {
+            status
+        } else {
+            MulticastMessageStatus::Failure
+        };
+
+        // TODO Send the multicast message to all the waiters.
+        self.shop().announcer.send_message(
+            MulticastMessage::new(
+                &self.shop().name,
+                &receipt.ticket,
+                message::MulticastMessageKind::Ticket,
+                status,
+            )
+        ).await.unwrap_or_else(
+            |err| {
+                crate::error!(
+                    target: LOG_TARGET,
+                    "Failed to send multicast message for ticket {ticket}, ignoring. We'll let the collection point discover the result itself: {error}",
+                    ticket=&ticket,
+                    error=err,
+                );
+
+                0
+            }
+        );
+
+        // Delete the ticket from the queue, or put it back if the processing failed.
         if result.is_ok() {
             receipt.delete().await?;
         } else {
+            // TODO stop these tickets from infinite retrying by putting them into a dead-letter queue.
             receipt.abort().await?;
         }
 
-        // TODO Send the multicast message to all the waiters.
-
-        result
+        result.map(|_| ())
     }
 }

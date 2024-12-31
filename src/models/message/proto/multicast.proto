@@ -12,10 +12,11 @@ message MulticastMessage {
     enum Status {
         REJECTED = 0;
         COMPLETE = 1;
+        FAILURE = 2;
     }
 
     string task = 99;
-    string id = 1;
+    string ticket = 1;
     Kind kind = 2;
     google.protobuf.Timestamp timestamp = 3;
     Status status = 4;

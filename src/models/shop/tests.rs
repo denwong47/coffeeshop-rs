@@ -1,12 +1,14 @@
-use super::*;
+//! Tests for the shop model.
+//!
+//! In many ways, this module behaves like an integration test, except that it aims
+//! to test the inner workings of the shop without actually opening it.
 
 use axum::http;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
-use crate::{cli::Config, helpers, models::test::*};
+use crate::models::test::*;
 
-const STALE_AGE: tokio::time::Duration = tokio::time::Duration::from_secs(60);
 const DEFAULT_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(3);
 
 mod functions_only {
@@ -30,23 +32,7 @@ mod functions_only {
             #[cfg(feature = "test_on_aws")]
             /// Testing the inner workings of the shop without actually opening it.
             async fn $name() {
-                let shop = Shop::new(
-                    LOG_TARGET.to_owned(),
-                    TestMachine::new(),
-                    Config::default()
-                        .with_dynamodb_table(&get_dynamodb_table())
-                        .with_dynamodb_partition_key("identifier")
-                        .with_sqs_queue(get_queue_url())
-                        .with_result_ttl(STALE_AGE.as_secs_f32()),
-                    Some(
-                        helpers::aws::get_aws_config()
-                            .await
-                            .expect("Failed to get AWS configuration."),
-                    ),
-                    1,
-                )
-                .await
-                .expect("Failed to create the shop.");
+                let shop = new_shop().await;
 
                 let waiter = &shop.waiter;
                 let barista = &shop.baristas.first().expect("No baristas available.");
