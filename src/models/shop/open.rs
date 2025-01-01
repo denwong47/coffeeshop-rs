@@ -27,7 +27,19 @@ where
     /// - `shutdown_signal` - A signal to shutdown the shop. This will be used internally
     ///   to gracefully shutdown the shop. You can also use this signal to shutdown the shop
     ///   from the outside.
-    pub async fn open(&self, shutdown_signal: Option<Arc<Notify>>) -> Result<(), CoffeeShopError> {
+    /// - `additional_routes` - Additional routes to be added to the waiter. This is useful
+    ///   when you want to add custom routes to the waiter. If you do not want to add any,
+    ///   pass a `vec![].into_iter()`.
+    pub async fn open(
+        &self,
+        shutdown_signal: Option<Arc<Notify>>,
+        additional_routes: impl Iterator<
+            Item = (
+                &'static str,
+                axum::routing::method_routing::MethodRouter<()>,
+            ),
+        >,
+    ) -> Result<(), CoffeeShopError> {
         // If the shutdown signal is not provided, create a new one.
         let shutdown_signal = shutdown_signal.unwrap_or_else(|| Arc::new(Notify::new()));
 
@@ -54,7 +66,7 @@ where
             },
             // Waiter.
             async {
-                self.waiter.serve(vec![].into_iter(), shutdown_signal.clone(), max_execution_time).await
+                self.waiter.serve(additional_routes, shutdown_signal.clone(), max_execution_time).await
                 .inspect_err(
                     |err| crate::error!("The waiter has stopped serving requests. Error: {:?}", err)
                 )

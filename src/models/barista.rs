@@ -14,7 +14,12 @@ use crate::{helpers, models::message::MulticastMessageStatus, CoffeeShopError};
 
 const LOG_TARGET: &str = "coffeeshop::models::barista";
 
-const BARISTA_REPORT_IDLE: tokio::time::Duration = tokio::time::Duration::from_secs(20);
+/// The idle time for the barista to wait for the next ticket.
+///
+/// The SQS queue will be polled fresh after this duration. The SQS queue is not
+/// guaranteed to be synchronised among all receivers, so it is possible that a ticket
+/// sent to the queue is not immediately visible to the barista.
+const BARISTA_REPORT_IDLE: tokio::time::Duration = tokio::time::Duration::from_secs(3);
 
 #[cfg(doc)]
 use crate::models::Ticket;

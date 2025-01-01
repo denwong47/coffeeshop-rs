@@ -17,7 +17,12 @@ pub use crate::helpers::{
     aws::HasAWSSdkConfig, dynamodb::HasDynamoDBConfiguration, sqs::HasSQSConfiguration,
 };
 
+use super::message::QueryType;
+
 const LOG_TARGET: &str = "coffeeshop::models::test";
+
+/// The shop type for testing.
+pub type TestShop = Shop<TestQuery, TestPayload, TestResult, TestMachine>;
 
 /// The default time to live for the results in the DynamoDB table.
 pub const STALE_AGE: tokio::time::Duration = tokio::time::Duration::from_secs(60);
@@ -71,9 +76,11 @@ impl Default for TestStatus {
     }
 }
 
+#[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct TestQuery {
     pub name: String,
+    #[serde_as(as = "Option<serde_with::DurationSecondsWithFrac<f64>>")]
     pub timeout: Option<tokio::time::Duration>,
 }
 
@@ -179,9 +186,7 @@ impl Machine<TestQuery, TestPayload, TestResult> for TestMachine {
 }
 
 /// Create a new shop for testing.
-pub async fn new_shop(
-    barista_count: usize,
-) -> Arc<Shop<TestQuery, TestPayload, TestResult, TestMachine>> {
+pub async fn new_shop(barista_count: usize) -> Arc<TestShop> {
     Shop::new(
         LOG_TARGET.to_owned(),
         TestMachine::new(),
@@ -199,4 +204,117 @@ pub async fn new_shop(
     )
     .await
     .expect("Failed to create the shop.")
+}
+
+/// Send a HTTP request to the shop.
+#[allow(dead_code)]
+pub async fn send_request<Q: QueryType + Clone>(
+    shop: &Arc<TestShop>,
+    method: http::Method,
+    path: &str,
+    query: Option<Q>,
+    body: Option<(&str, &str)>,
+) -> reqwest::Result<reqwest::Response> {
+    const ATTEMPT_COUNT: usize = 3;
+
+    fn request_builder<Q: QueryType>(
+        shop: &Arc<TestShop>,
+        method: http::Method,
+        path: &str,
+        query: Option<Q>,
+        body: Option<(&str, &str)>,
+    ) -> reqwest::RequestBuilder {
+        let client = reqwest::Client::new();
+        let mut builder = client.request(
+            method.clone(),
+            format!(
+                "http://localhost:{port}{path}",
+                port = shop.config.port,
+                path = path,
+            ),
+        );
+
+        builder = if let Some(query) = query {
+            builder.query(&query)
+        } else {
+            builder
+        };
+
+        if let Some((mimetype, payload)) = body {
+            builder
+                .body(payload.to_owned())
+                .header(http::header::CONTENT_TYPE, mimetype)
+        } else {
+            builder
+        }
+    }
+
+    for attempt in 0..ATTEMPT_COUNT {
+        crate::info!(
+            "Sending {method:?} request to {path}...",
+            method = method,
+            path = path,
+        );
+        let result = request_builder(shop, method.clone(), path, query.clone(), body)
+            .send()
+            .await;
+
+        if let Ok(response) = &result {
+            if response.status() == http::StatusCode::REQUEST_TIMEOUT {
+                crate::warn!(
+                    "Request to {path} timed out. Retrying... ({attempt}/{total})",
+                    path = path,
+                    attempt = attempt + 1,
+                    total = ATTEMPT_COUNT,
+                );
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                continue;
+            }
+
+            crate::info!(
+                "Got {status:?} response from {method:?} {path} containing {size} bytes.",
+                status = response.status(),
+                method = method,
+                path = path,
+                size = response.content_length().unwrap_or(0),
+            );
+
+            return result;
+        } else {
+            crate::warn!(
+                "Failed to send {method:?} request to {path}. Retrying... ({attempt}/{total})",
+                method = method,
+                path = path,
+                attempt = attempt + 1,
+                total = ATTEMPT_COUNT,
+            )
+        }
+    }
+
+    panic!(
+        "Failed to send {method:?} request to {path}.",
+        method = method,
+        path = path,
+    )
+}
+
+/// Send a HTTP request with a JSON body to the shop.
+#[allow(dead_code)]
+pub async fn send_json_request<Q: QueryType + Clone, S: Serialize>(
+    shop: &Arc<TestShop>,
+    method: http::Method,
+    path: &str,
+    query: Option<Q>,
+    obj: S,
+) -> reqwest::Result<reqwest::Response> {
+    assert_ne!(
+        method,
+        http::Method::GET,
+        "GET requests cannot have a body."
+    );
+
+    let payload = serde_json::to_string(&obj).expect("Failed to serialize the object.");
+    let mimetype = "application/json";
+
+    send_request(shop, method, path, query, Some((mimetype, &payload))).await
 }

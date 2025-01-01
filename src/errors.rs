@@ -209,6 +209,10 @@ pub enum CoffeeShopError {
 
     #[error("DynamoDB item is found malformed: {0}")]
     DynamoDBMalformedItem(String),
+
+    #[cfg(test)]
+    #[error("A unit test failed unexpectedly: {0}")]
+    UnitTestFailure(String),
 }
 
 impl CoffeeShopError {

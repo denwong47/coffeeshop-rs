@@ -166,8 +166,6 @@ where
             .ok_or_else(|| CoffeeShopError::TicketNotFound(ticket.clone()))
             .map(Arc::clone);
 
-        dbg!(&order);
-
         if let Err(err) = order {
             return err.into_response();
         }
@@ -201,9 +199,17 @@ where
         ticket: String,
         timeout: Option<tokio::time::Duration>,
     ) -> axum::response::Response {
+        let ticket_for_log = ticket.clone();
+
         if let Some(timeout) = timeout {
             tokio::select! {
                 _ = tokio::time::sleep(timeout) => {
+                    crate::error!(
+                        target: LOG_TARGET,
+                        "Timeout of {timeout} seconds reached while waiting for order {ticket} to complete.",
+                        timeout = timeout.as_secs(),
+                        ticket = ticket_for_log,
+                    );
                     Err::<(), _>(CoffeeShopError::RetrieveTimeout(timeout)).into_response()
                 }
                 result = self.retrieve_order(ticket) => {

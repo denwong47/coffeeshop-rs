@@ -7,6 +7,8 @@ use aws_sdk_sqs as sqs;
 
 use super::{encoding, HasSQSConfiguration, StagedReceipt};
 
+const LOG_TARGET: &str = "coffeeshop::helpers::sqs::func";
+
 /// Put a ticket into the AWS SQS queue.
 pub async fn put_ticket<Q, I>(
     config: &dyn HasSQSConfiguration,
@@ -27,9 +29,19 @@ where
         .message_body(encoding::encode(&serialized_input.read_to_end().await?).await?)
         .send()
         .await
+        .inspect_err(
+            |err| crate::error!(target: LOG_TARGET, "Failed to send message: {err}", err = err),
+        )
         .map_err(|sdk_err| {
             CoffeeShopError::from_aws_sqs_send_message_error(sdk_err.into_service_error())
         })?;
+
+    dbg!(&response);
+    crate::info!(
+        target: LOG_TARGET,
+        "Sent message ID {message_id}.",
+        message_id = response.message_id().unwrap_or_else(|| "(None; this is unexpected?)"),
+    );
 
     response.message_id().map(Ticket::from).ok_or_else(|| {
         CoffeeShopError::UnexpectedAWSResponse(

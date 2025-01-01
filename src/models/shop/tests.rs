@@ -7,9 +7,12 @@ use axum::http;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
-use crate::{models::test::*, CoffeeShopError};
+use crate::{
+    models::{message, test::*},
+    CoffeeShopError,
+};
 
-const DEFAULT_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(3);
+const DEFAULT_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(10);
 
 mod functions_only {
     use crate::models::message::CombinedInput;
@@ -231,41 +234,127 @@ mod announcer {
 }
 
 /// Test that opens the shop.
-mod open {
+mod shop {
     use super::*;
 
     const LOG_TARGET: &str = "coffeeshop::models::shop::tests::open";
 
-    #[tokio::test]
-    #[serial_test::serial(uses_sqs)]
-    #[serial_test::serial(uses_dynamodb)]
-    #[serial_test::serial(uses_multicast)]
-    #[cfg(feature = "test_on_aws")]
-    async fn test_open() {
-        let shop = new_shop(3).await;
+    const SECRET: &str = "Hello, world!";
 
-        let shutdown_signal = Arc::new(Notify::new());
+    macro_rules! create_test {
+        ($name:ident(
+            $task:ident
+        )) => {
+            #[tokio::test]
+            #[serial_test::serial(uses_sqs)]
+            #[serial_test::serial(uses_dynamodb)]
+            #[serial_test::serial(uses_multicast)]
+            #[cfg(feature = "test_on_aws")]
+            async fn $name() {
+                let shop = new_shop(3).await;
 
-        let workload = async { shop.open(Some(shutdown_signal.clone())).await };
+                let shutdown_signal = Arc::new(Notify::new());
 
-        let termination_signal = async {
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            crate::info!(target: LOG_TARGET, "Sending termination signal...");
-            shutdown_signal.clone().notify_waiters();
+                let additional_routes = vec![
+                    ("/test", axum::routing::get(|| async { Ok::<_, CoffeeShopError>(SECRET) })),
+                ].into_iter();
 
-            Ok(())
+                let workload = async { shop.open(Some(shutdown_signal.clone()), additional_routes).await };
+
+                let termination_signal = async {
+                    crate::info!(target: LOG_TARGET, "Waiting for host to come alive...");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    crate::info!(target: LOG_TARGET, "Executing test task...");
+                    let result = $task(shop.clone()).await;
+                    crate::info!(target: LOG_TARGET, "Sending termination signal...");
+                    shutdown_signal.clone().notify_waiters();
+
+                    result
+                };
+
+                let result = tokio::try_join!(workload, termination_signal,);
+
+                match result {
+                    Ok(_) => {
+                        crate::info!(target: LOG_TARGET, "All workloads completed successfully.");
+                    }
+                    Err(err) => {
+                        crate::error!(target: LOG_TARGET, "One or more workloads failed: {err:?}");
+                        panic!("One or more workloads failed: {err:?}");
+                    }
+                }
+            }
+
         };
-
-        let result = tokio::try_join!(workload, termination_signal,);
-
-        match result {
-            Ok(_) => {
-                crate::info!(target: LOG_TARGET, "All workloads completed successfully.");
-            }
-            Err(err) => {
-                crate::error!(target: LOG_TARGET, "One or more workloads failed: {err:?}");
-                panic!("One or more workloads failed: {err:?}");
-            }
-        }
     }
+
+    /// Test that opens the shop.
+    async fn no_op(_shop: Arc<TestShop>) -> Result<(), CoffeeShopError> {
+        Ok(())
+    }
+
+    create_test!(open(no_op));
+
+    /// Test sending a task to the shop.
+    async fn open_and_send_one_request(shop: Arc<TestShop>) -> Result<(), CoffeeShopError> {
+        // `/test` is a route that is only available when the shop is open.
+        let response = send_request::<TestQuery>(&shop, http::Method::GET, "/test", None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            http::StatusCode::OK,
+            "Unexpected Response {:?} from '/test': {:#?}",
+            response.status(),
+            response.text().await.unwrap()
+        );
+        assert_eq!(response.text().await.unwrap(), SECRET);
+
+        // Make a request to `/request` to create a ticket.
+        let query = TestQuery {
+            name: "Big Dave".to_string(),
+            timeout: Some(DEFAULT_TIMEOUT),
+        };
+        let payload = Some(TestPayload {
+            action: TestStatus::Eat,
+            duration: 3600.,
+        });
+
+        let response = send_json_request(
+            &shop,
+            http::Method::POST,
+            "/request",
+            Some(query.clone()),
+            payload.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            response.status(),
+            http::StatusCode::OK,
+            "Unexpected Response {:?} from '/request': {:#?}",
+            response.status(),
+            response.text().await.unwrap()
+        );
+        let result = response
+            .json::<message::OutputResponseExport<TestResult>>()
+            .await
+            .unwrap();
+
+        crate::info!(
+            target: LOG_TARGET,
+            "Received response: {:#?}",
+            result
+        );
+        // Check that the response is correct.
+        assert_eq!(
+            result.output.greetings,
+            format!("Hello, {name}!", name = &query.name)
+        );
+
+        Ok(())
+    }
+
+    create_test!(send_single_task(open_and_send_one_request));
 }
