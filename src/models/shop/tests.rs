@@ -99,6 +99,7 @@ mod functions_only {
         query = TestQuery {
             name: "Big Dave".to_string(),
             timeout: Some(DEFAULT_TIMEOUT),
+            is_async: false,
         },
         payload = Some(TestPayload {
             action: TestStatus::Eat,
@@ -112,6 +113,7 @@ mod functions_only {
         query = TestQuery {
             name: "Big Dave".to_string(),
             timeout: Some(DEFAULT_TIMEOUT),
+            is_async: false,
         },
         payload = None,
         validation_error = true,
@@ -122,6 +124,7 @@ mod functions_only {
         query = TestQuery {
             name: "Big Dave".to_string(),
             timeout: Some(DEFAULT_TIMEOUT),
+            is_async: false,
         },
         payload = Some(TestPayload {
             action: TestStatus::Eat,
@@ -135,6 +138,7 @@ mod functions_only {
         query = TestQuery {
             name: "Little Timmy".to_string(),
             timeout: Some(DEFAULT_TIMEOUT),
+            is_async: false,
         },
         payload = Some(TestPayload {
             action: TestStatus::Eat,
@@ -150,6 +154,7 @@ mod functions_only {
         query = TestQuery {
             name: "Big Dave".to_string(),
             timeout: Some(DEFAULT_TIMEOUT),
+            is_async: false,
         },
         payload = Some(TestPayload {
             action: TestStatus::Sleep,
@@ -315,6 +320,7 @@ mod shop {
         let query = TestQuery {
             name: "Big Dave".to_string(),
             timeout: Some(DEFAULT_TIMEOUT),
+            is_async: false,
         };
         let payload = Some(TestPayload {
             action: TestStatus::Eat,

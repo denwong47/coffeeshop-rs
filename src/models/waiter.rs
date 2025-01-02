@@ -278,11 +278,19 @@ where
                         // Pre-convert all errors to responses, so that the typing
                         // is consistent.
                         if params.is_async() {
+                            crate::info!(
+                                target: LOG_TARGET,
+                                "Received an asynchronous request.",
+                            );
                             arc_self
                                 .async_request(Query(params), body)
                                 .await
                                 .into_response()
                         } else {
+                            crate::info!(
+                                target: LOG_TARGET,
+                                "Received a blocking request.",
+                            );
                             arc_self.request(Query(params), body).await.into_response()
                         }
                     }

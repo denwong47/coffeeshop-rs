@@ -45,6 +45,16 @@ where
     I: serde::de::DeserializeOwned + serde::Serialize,
 {
     /// Create a new [`StagedReceipt`] instance.
+    ///
+    /// # Safety
+    ///
+    /// This method is _NOT_ cancel safe. If the future is dropped before it
+    /// completes, a message could have been received, marked as invisible,
+    /// and then the future is dropped, leaving the message in the queue
+    /// without being processed.
+    ///
+    /// **Do not race this method against a timeout; use the built-in `timeout`
+    /// parameter instead.**
     pub async fn receive(
         config: &dyn HasSQSConfiguration,
         timeout: Option<tokio::time::Duration>,

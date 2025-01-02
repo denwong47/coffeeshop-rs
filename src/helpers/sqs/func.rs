@@ -40,7 +40,7 @@ where
     crate::info!(
         target: LOG_TARGET,
         "Sent message ID {message_id}.",
-        message_id = response.message_id().unwrap_or_else(|| "(None; this is unexpected?)"),
+        message_id = response.message_id().unwrap_or("(None; this is unexpected?)"),
     );
 
     response.message_id().map(Ticket::from).ok_or_else(|| {

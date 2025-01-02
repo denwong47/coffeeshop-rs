@@ -56,9 +56,8 @@ pub struct OutputResponseExport<O> {
     pub output: O,
 }
 
-impl<'de, 'o, O> Deserialize<'de> for OutputResponseExport<O>
+impl<'de, O> Deserialize<'de> for OutputResponseExport<O>
 where
-    'o: 'de,
     O: DeserializeOwned,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

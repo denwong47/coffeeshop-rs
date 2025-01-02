@@ -81,13 +81,13 @@ where
     pub async fn serve(&self, shutdown_signal: Arc<Notify>) -> Result<(), CoffeeShopError> {
         let task = async {
             loop {
-                crate::info!(
+                crate::debug!(
                     target: LOG_TARGET,
                     "A Barista is waiting for the next ticket...",
                 );
                 match self.process_next_ticket(Some(BARISTA_REPORT_IDLE)).await {
                     Ok(_) => (),
-                    Err(crate::CoffeeShopError::AWSSQSQueueEmpty(duration)) => crate::info!(
+                    Err(crate::CoffeeShopError::AWSSQSQueueEmpty(duration)) => crate::debug!(
                         target: LOG_TARGET,
                         "No tickets in the queue after {duration:?}; trying again.",
                         duration = duration,

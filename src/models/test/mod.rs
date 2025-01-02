@@ -82,11 +82,19 @@ pub struct TestQuery {
     pub name: String,
     #[serde_as(as = "Option<serde_with::DurationSecondsWithFrac<f64>>")]
     pub timeout: Option<tokio::time::Duration>,
+    #[serde(rename = "async")]
+    #[serde(default)]
+    pub is_async: bool,
 }
 
 impl message::QueryType for TestQuery {
     fn get_timeout(&self) -> Option<tokio::time::Duration> {
         self.timeout
+    }
+
+    fn is_async(&self) -> bool {
+        dbg!(self);
+        self.is_async
     }
 }
 
@@ -103,6 +111,12 @@ pub struct TestResult {
 }
 
 pub struct TestMachine {}
+
+impl Default for TestMachine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl TestMachine {
     pub fn new() -> Self {

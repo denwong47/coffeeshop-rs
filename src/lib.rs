@@ -7,7 +7,7 @@
 //!   into an AWS SQS standard queue, which will then
 
 pub mod errors;
-pub use errors::{CoffeeMachineError, CoffeeShopError, ValidationError};
+pub use errors::{CoffeeMachineError, CoffeeShopError, ErrorSchema, ValidationError};
 
 /// Re-export the necessary crates for implementors of [`models::Machine`].
 ///
@@ -20,7 +20,7 @@ pub mod reexports {
 
     /// Re-export the `async_trait` crate so that implementors of [`models::Machine`]
     /// can use it without concerns for mismatched versions.
-    pub use async_trait;
+    pub use async_trait::async_trait;
 
     /// Re-export the `axum` crate so that implementors of [`models::Machine`] can use it
     /// without concerns for mismatched versions.
@@ -53,3 +53,19 @@ pub mod models;
 pub mod cli;
 
 mod logger;
+
+/// Exports all the necessary types for the user to implement the coffee machine.
+pub mod prelude {
+    /// Re-export the optional traits for the user to implement if desired.
+    pub mod traits {
+        pub use super::super::helpers::{
+            aws::HasAWSSdkConfig, dynamodb::HasDynamoDBConfiguration, sqs::HasSQSConfiguration,
+        };
+    }
+    pub use super::cli::Config;
+    pub use super::helpers::aws;
+    pub use super::models::{
+        message::QueryType, Announcer, Barista, CollectionPoint, Machine, Shop, Waiter,
+    };
+    pub use super::{CoffeeMachineError, CoffeeShopError, ErrorSchema, ValidationError};
+}

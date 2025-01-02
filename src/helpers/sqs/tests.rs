@@ -98,6 +98,7 @@ mod full_workflow {
             name: "big dave".to_string(),
             // This is actually a different timeout from the `timeout` variable, but it's just for testing.
             timeout: TIMEOUT,
+            is_async: false,
         };
 
         let payload = TestPayload {
@@ -171,6 +172,7 @@ mod full_workflow {
             name: "big dave".to_string(),
             // This is actually a different timeout from the `timeout` variable, but it's just for testing.
             timeout: TIMEOUT,
+            is_async: false,
         };
 
         let payload = TestPayload {

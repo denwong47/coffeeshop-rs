@@ -36,5 +36,6 @@ pub use waiter::*;
 pub mod message;
 pub use message::Ticket;
 
+// Test models for testing the message module.
 #[cfg(test)]
-pub(crate) mod test;
+pub mod test;
