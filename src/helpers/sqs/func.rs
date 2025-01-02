@@ -33,7 +33,7 @@ where
             |err| crate::error!(target: LOG_TARGET, "Failed to send message: {err}", err = err),
         )
         .map_err(|sdk_err| {
-            CoffeeShopError::from_aws_sqs_send_message_error(sdk_err.into_service_error())
+            CoffeeShopError::from_aws_sqs_send_message_error(sdk_err.into_service_error(), config)
         })?;
 
     dbg!(&response);
@@ -72,6 +72,7 @@ pub async fn purge_tickets(config: &dyn HasSQSConfiguration) -> Result<(), Coffe
         .queue_url(config.sqs_queue_url())
         .send()
         .await
+        // TODO Make a more unique error type for this.
         .map_err(|err| CoffeeShopError::AWSSdkError(format!("{:?}", err)))?;
 
     Ok(())

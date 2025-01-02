@@ -75,10 +75,12 @@ where
             // .visibility_timeout(30)
             .send()
             .await
-            .map_err(
-                // TODO Change the error type.
-                |err| CoffeeShopError::AWSSdkError(format!("{:?}", err)),
-            )?;
+            .map_err(|sdk_err| {
+                CoffeeShopError::from_aws_sqs_receive_message_error(
+                    sdk_err.into_service_error(),
+                    config,
+                )
+            })?;
 
         // Get one message out of the list of messages.
         // There should only be one anyway.

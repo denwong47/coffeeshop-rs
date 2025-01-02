@@ -6,13 +6,15 @@ use std::net::{IpAddr, SocketAddr};
 #[cfg(doc)]
 use crate::models::{Barista, Waiter};
 
-use crate::models::Ticket;
+use crate::{helpers::sqs::HasSQSConfiguration, models::Ticket};
 
 /// Re-exports necessary for the error handling of SQS SDK.
 mod sqs {
     pub const DEFAULT_ERROR_MESSAGE: &str = "(No details provided)";
 
-    pub use aws_sdk_sqs::operation::send_message::SendMessageError;
+    pub use aws_sdk_sqs::operation::{
+        receive_message::ReceiveMessageError, send_message::SendMessageError,
+    };
     pub use aws_sdk_sqs::types::error::*;
 }
 
@@ -180,6 +182,9 @@ pub enum CoffeeShopError {
     #[error("Unexpected AWS SQS Send Message Error: {0:?}")]
     AWSSQSSendMessageError(#[from] Box<sqs::SendMessageError>),
 
+    #[error("Unexpected AWS SQS Receive Message Error: {0:?}")]
+    AWSSQSReceiveMessageError(#[from] Box<sqs::ReceiveMessageError>),
+
     #[error("Message from AWS SQS had already been completed, and cannot be {0} again.")]
     AWSSQSStagedReceiptAlreadyCompleted(&'static str),
 
@@ -237,15 +242,42 @@ impl CoffeeShopError {
         CoffeeShopError::HTTPServerError(error.kind(), error)
     }
 
-    /// Convenient method to map AWS SQS SDK errors to [`CoffeeShopError`].
-    pub fn from_aws_sqs_send_message_error(error: sqs::SendMessageError) -> Self {
+    /// Convenient method to map AWS SQS SDK errors from receiving messages to
+    /// [`CoffeeShopError`].
+    pub fn from_aws_sqs_receive_message_error(
+        error: sqs::ReceiveMessageError,
+        config: &dyn HasSQSConfiguration,
+    ) -> Self {
         match error {
-            sqs::SendMessageError::QueueDoesNotExist(sqs::QueueDoesNotExist {
+            sqs::ReceiveMessageError::QueueDoesNotExist(sqs::QueueDoesNotExist { .. }) => {
+                CoffeeShopError::AWSQueueDoesNotExist(config.sqs_queue_url().to_owned())
+            }
+            sqs::ReceiveMessageError::InvalidAddress(sqs::InvalidAddress {
                 message: msg_opt,
                 ..
-            }) => CoffeeShopError::AWSQueueDoesNotExist(
+            }) => CoffeeShopError::InvalidConfiguration {
+                field: "sqs_queue",
+                message: msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
+            },
+            sqs::ReceiveMessageError::KmsAccessDenied(sqs::KmsAccessDenied {
+                message: msg_opt,
+                ..
+            }) => CoffeeShopError::AWSCredentialsError(
                 msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
             ),
+            err => CoffeeShopError::AWSSQSReceiveMessageError(Box::new(err)),
+        }
+    }
+
+    /// Convenient method to map AWS SQS SDK errors from sending messages to [`CoffeeShopError`].
+    pub fn from_aws_sqs_send_message_error(
+        error: sqs::SendMessageError,
+        config: &dyn HasSQSConfiguration,
+    ) -> Self {
+        match error {
+            sqs::SendMessageError::QueueDoesNotExist(sqs::QueueDoesNotExist { .. }) => {
+                CoffeeShopError::AWSQueueDoesNotExist(config.sqs_queue_url().to_owned())
+            }
             sqs::SendMessageError::InvalidMessageContents(sqs::InvalidMessageContents {
                 message: msg_opt,
                 ..

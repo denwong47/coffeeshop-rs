@@ -6,7 +6,6 @@ edition = "2021"
 [[example]]
 name = "hello_world"
 path = "examples/hello_world/main.rs"
-features = ["reqwest", "debug"]
 
 [features]
 default = ["debug", "sqs_strict", "test_on_aws"]

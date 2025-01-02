@@ -85,13 +85,47 @@ where
                     target: LOG_TARGET,
                     "A Barista is waiting for the next ticket...",
                 );
-                match self.process_next_ticket(Some(BARISTA_REPORT_IDLE)).await {
+                let result = self.process_next_ticket(Some(BARISTA_REPORT_IDLE)).await;
+
+                // Inspect the result and decide what to do.
+                match &result {
                     Ok(_) => (),
+                    // Expected errors.
                     Err(crate::CoffeeShopError::AWSSQSQueueEmpty(duration)) => crate::debug!(
                         target: LOG_TARGET,
                         "No tickets in the queue after {duration:?}; trying again.",
                         duration = duration,
                     ),
+                    // Irrecoverable errors.
+                    Err(crate::CoffeeShopError::AWSQueueDoesNotExist(queue_url)) => {
+                        crate::error!(
+                            target: LOG_TARGET,
+                            "The {queue} does not exist; terminating barista.",
+                            queue = queue_url,
+                        );
+
+                        break result;
+                    }
+                    Err(crate::CoffeeShopError::InvalidConfiguration { field, message }) => {
+                        crate::error!(
+                            target: LOG_TARGET,
+                            "Invalid configuration for the barista: {field}: {message}",
+                            field = field,
+                            message = message,
+                        );
+
+                        break result;
+                    }
+                    Err(crate::CoffeeShopError::AWSCredentialsError(err)) => {
+                        crate::error!(
+                            target: LOG_TARGET,
+                            "AWS credentials rejected: {error}",
+                            error = err,
+                        );
+
+                        break result;
+                    }
+                    // Catch all.
                     Err(err) => crate::error!(
                         target: LOG_TARGET,
                         "Error processing ticket: {error}",
@@ -110,8 +144,19 @@ where
 
                 Ok(())
             },
-            _ = task => {
-                unreachable!("The barista task should never return.")
+            result = task => {
+                if result.is_err() {
+                    crate::warn!(
+                        target: LOG_TARGET,
+                        "Barista task has unexpectedly terminated, shop could not remain open.",
+                    );
+                } else {
+                    crate::warn!(
+                        target: LOG_TARGET,
+                        "Barista task has completed; this should be unreachable."
+                    );
+                }
+                result
             },
         }
     }
