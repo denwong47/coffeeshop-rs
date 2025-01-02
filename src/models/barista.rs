@@ -81,7 +81,7 @@ where
     pub async fn serve(&self, shutdown_signal: Arc<Notify>) -> Result<(), CoffeeShopError> {
         let task = async {
             loop {
-                crate::debug!(
+                crate::trace!(
                     target: LOG_TARGET,
                     "A Barista is waiting for the next ticket...",
                 );
@@ -91,7 +91,7 @@ where
                 match &result {
                     Ok(_) => (),
                     // Expected errors.
-                    Err(crate::CoffeeShopError::AWSSQSQueueEmpty(duration)) => crate::debug!(
+                    Err(crate::CoffeeShopError::AWSSQSQueueEmpty(duration)) => crate::trace!(
                         target: LOG_TARGET,
                         "No tickets in the queue after {duration:?}; trying again.",
                         duration = duration,

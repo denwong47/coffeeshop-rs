@@ -316,7 +316,8 @@ where
             ))
         }
 
-        let listener = tokio::net::TcpListener::bind(self.shop().config.host_addr())
+        let socket_addr = self.shop().config.host_addr();
+        let listener = tokio::net::TcpListener::bind(&socket_addr)
             .await
             .map_err(|err| {
                 CoffeeShopError::ListenerCreationFailure(
@@ -324,10 +325,21 @@ where
                     self.shop().config.host_addr(),
                 )
             })?;
+
         let server = axum::serve(listener, app)
             .with_graceful_shutdown(async move { shutdown_signal.notified().await });
 
-        let result = server.await.map_err(CoffeeShopError::from_server_io_error);
+        let result = tokio::try_join!(server, async {
+            crate::info!(
+                target: LOG_TARGET,
+                "Waiter is listening on {socket_addr:?}. Press Ctrl+C to stop.",
+            );
+
+            Ok(())
+        })
+        // Remove the server start logger from the error.
+        .map(|(result, _)| result)
+        .map_err(CoffeeShopError::from_server_io_error);
 
         crate::warn!(
             target: LOG_TARGET,
