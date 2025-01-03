@@ -1,15 +1,15 @@
-use axum::{body::Body, http, response::IntoResponse, Json};
+use axum::{body::Body, http, response::IntoResponse, BoxError, Json};
 use thiserror::Error;
 
 use std::net::{IpAddr, SocketAddr};
-
-#[cfg(doc)]
-use crate::models::{Barista, Waiter};
 
 use crate::{
     helpers::{dynamodb::HasDynamoDBConfiguration, sqs::HasSQSConfiguration},
     models::Ticket,
 };
+
+#[cfg(doc)]
+use crate::models::{Barista, Waiter};
 
 /// Re-exports necessary for the error handling of SQS SDK.
 mod sqs {
@@ -132,6 +132,9 @@ pub enum CoffeeShopError {
         addr: String,
         error: prost::DecodeError,
     },
+
+    #[error("Endpoint {0} is not found on this server. Please consult the API documentation.")]
+    InvalidRoute(http::Uri),
 
     #[error("HTTP Host failed: {0}")]
     HTTPServerError(std::io::ErrorKind, std::io::Error),
@@ -357,6 +360,7 @@ impl CoffeeShopError {
             CoffeeShopError::InvalidConfiguration { .. } => http::StatusCode::INTERNAL_SERVER_ERROR,
             CoffeeShopError::InvalidMulticastAddress(_) => http::StatusCode::BAD_REQUEST,
             CoffeeShopError::InvalidMulticastMessage { .. } => http::StatusCode::BAD_REQUEST,
+            CoffeeShopError::InvalidRoute(_) => http::StatusCode::NOT_FOUND,
             CoffeeShopError::RetrieveTimeout(_) => http::StatusCode::REQUEST_TIMEOUT,
             CoffeeShopError::Base64EncodingOversize(_) => http::StatusCode::PAYLOAD_TOO_LARGE,
             CoffeeShopError::ProcessingError(ErrorSchema { status_code, .. }) => *status_code,
@@ -391,6 +395,18 @@ impl CoffeeShopError {
     pub fn as_json(&self) -> serde_json::Value {
         serde_json::to_value(self.as_error_schema()).unwrap_or_else(|_| panic!("Failed to serialize the `ErrorSchema` into JSON for the response. This should not be possible; please check your error type definition: {:?}",
                 self))
+    }
+
+    /// Converts a [`BoxError`] into a [`CoffeeShopError`], which will always return
+    /// a JSON response.
+    pub fn from_axum_box_error(error: BoxError) -> Self {
+        CoffeeShopError::ErrorSchema(ErrorSchema::new(
+            http::StatusCode::INTERNAL_SERVER_ERROR,
+            "BoxError".to_string(),
+            Some(serde_json::json!({
+                "message": error.to_string(),
+            })),
+        ))
     }
 }
 

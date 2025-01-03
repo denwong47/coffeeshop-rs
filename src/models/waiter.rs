@@ -308,6 +308,9 @@ where
         // Add additional routes to the app.
         app = additional_routes.fold(app, |app, (path, handler)| app.route(path, handler));
 
+        // 404 Fallback.
+        app = app.fallback(|uri| async { CoffeeShopError::InvalidRoute(uri) });
+
         // Add the trace and timeout layers to the app.
         if let Some(max_execution_time) = max_execution_time {
             app = app.layer((
