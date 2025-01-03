@@ -40,8 +40,7 @@ where
                 sdk_err
             );
 
-            // TODO - Implement a more specific error type for DynamoDB errors.
-            CoffeeShopError::AWSSdkError(format!("{:?}", sdk_err))
+            CoffeeShopError::from_aws_dynamodb_put_item_error(sdk_err.into_service_error(), config)
         })
         .map(
             |response| {

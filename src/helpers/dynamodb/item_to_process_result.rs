@@ -50,7 +50,7 @@ impl ToProcessResult for std::collections::HashMap<String, AttributeValue> {
             (Some(AttributeValue::S(ticket)), Some(AttributeValue::Bool(success))) => {
                 Ok((ticket.clone(), *success))
             }
-            _ => Err(CoffeeShopError::DynamoDBMalformedItem(
+            _ => Err(CoffeeShopError::AWSDynamoDBMalformedItem(
                 "A map was retrieved, but its structure could not be parsed.".to_string(),
             )),
         }
@@ -124,7 +124,7 @@ impl ToProcessResult for std::collections::HashMap<String, AttributeValue> {
 
                 Ok((ticket, Err(error)))
             }
-            _ => Err(CoffeeShopError::DynamoDBMalformedItem(
+            _ => Err(CoffeeShopError::AWSDynamoDBMalformedItem(
                 "A map was retrieved, but its structure could not be parsed.".to_string(),
             )),
         }

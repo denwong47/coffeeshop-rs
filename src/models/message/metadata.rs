@@ -5,6 +5,7 @@ use tokio::time::Duration;
 /// Response Metadata, containing information about the host returning the response.
 ///
 /// Mostly for debugging purposes.
+#[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ResponseMetadata {
     /// The IP address of the server.
@@ -12,6 +13,7 @@ pub struct ResponseMetadata {
     /// The timestamp of the response.
     pub timestamp: DateTime<Utc>,
     /// Server uptime in seconds.
+    #[serde_as(as = "serde_with::DurationSecondsWithFrac<f64>")]
     pub uptime: Duration,
 }
 

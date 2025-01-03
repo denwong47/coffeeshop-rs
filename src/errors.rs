@@ -6,7 +6,10 @@ use std::net::{IpAddr, SocketAddr};
 #[cfg(doc)]
 use crate::models::{Barista, Waiter};
 
-use crate::{helpers::sqs::HasSQSConfiguration, models::Ticket};
+use crate::{
+    helpers::{dynamodb::HasDynamoDBConfiguration, sqs::HasSQSConfiguration},
+    models::Ticket,
+};
 
 /// Re-exports necessary for the error handling of SQS SDK.
 mod sqs {
@@ -16,6 +19,11 @@ mod sqs {
         receive_message::ReceiveMessageError, send_message::SendMessageError,
     };
     pub use aws_sdk_sqs::types::error::*;
+}
+/// Re-exports necessary for the error handling of DynamoDB SDK.
+mod dynamodb {
+    pub use aws_sdk_dynamodb::operation::put_item::PutItemError;
+    pub use aws_sdk_dynamodb::types::error::*;
 }
 
 /// The error type for validation errors.
@@ -170,6 +178,15 @@ pub enum CoffeeShopError {
     #[error("AWS Configuration incomplete: {0}")]
     AWSConfigIncomplete(String),
 
+    #[error("The specified AWS DynamoDB Table does not exists. Please verify the table: {0}")]
+    AWSDynamoDBTableDoesNotExist(String),
+
+    #[error("DynamoDB item is found malformed: {0}")]
+    AWSDynamoDBMalformedItem(String),
+
+    #[error("AWS DynamoDB Provisioned Throughput Exceeded.")]
+    AWSDynamoDBRateLimitExceeded,
+
     #[error("The specified AWS SQS queue URL does not exists. Please verify the URL: {0}")]
     AWSQueueDoesNotExist(String),
 
@@ -211,9 +228,6 @@ pub enum CoffeeShopError {
 
     #[error("Upstream worker reported an error: {0:?}")]
     ErrorSchema(ErrorSchema),
-
-    #[error("DynamoDB item is found malformed: {0}")]
-    DynamoDBMalformedItem(String),
 
     #[cfg(test)]
     #[error("A unit test failed unexpectedly: {0}")]
@@ -300,6 +314,36 @@ impl CoffeeShopError {
         }
     }
 
+    /// Convenient method to map AWS DynamoDB SDK errors to [`CoffeeShopError`].
+    pub fn from_aws_dynamodb_put_item_error(
+        error: dynamodb::PutItemError,
+        config: &dyn HasDynamoDBConfiguration,
+    ) -> Self {
+        match error {
+            dynamodb::PutItemError::ResourceNotFoundException(_) => {
+                CoffeeShopError::AWSDynamoDBTableDoesNotExist(config.dynamodb_table().to_owned())
+            }
+            dynamodb::PutItemError::InvalidEndpointException(_) => {
+                CoffeeShopError::InvalidConfiguration {
+                    field: "dynamodb_table",
+                    message: format!(
+                        "Invalid endpoint for DynamoDB; please verify the table: {}",
+                        config.dynamodb_table()
+                    ),
+                }
+            }
+            dynamodb::PutItemError::ProvisionedThroughputExceededException(_) => {
+                CoffeeShopError::AWSDynamoDBRateLimitExceeded
+            }
+            dynamodb::PutItemError::ConditionalCheckFailedException(
+                dynamodb::ConditionalCheckFailedException { message, item, .. },
+            ) => CoffeeShopError::AWSDynamoDBMalformedItem(format!(
+                "Conditional check failed for {item:?}: {message:#?}"
+            )),
+            err => CoffeeShopError::AWSSdkError(format!("{:?}", err)),
+        }
+    }
+
     /// This method returns the appropriate HTTP status code for the error.
     ///
     /// Some of these errors will not be encountered as a result of a request,
@@ -317,7 +361,7 @@ impl CoffeeShopError {
             CoffeeShopError::Base64EncodingOversize(_) => http::StatusCode::PAYLOAD_TOO_LARGE,
             CoffeeShopError::ProcessingError(ErrorSchema { status_code, .. }) => *status_code,
             CoffeeShopError::ErrorSchema(ErrorSchema { status_code, .. }) => *status_code,
-            CoffeeShopError::DynamoDBMalformedItem(_) => http::StatusCode::BAD_GATEWAY,
+            CoffeeShopError::AWSDynamoDBMalformedItem(_) => http::StatusCode::BAD_GATEWAY,
             _ => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }

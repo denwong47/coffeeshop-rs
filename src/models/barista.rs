@@ -100,8 +100,17 @@ where
                     Err(crate::CoffeeShopError::AWSQueueDoesNotExist(queue_url)) => {
                         crate::error!(
                             target: LOG_TARGET,
-                            "The {queue} does not exist; terminating barista.",
+                            "The SQS queue {queue:?} does not exist; terminating barista.",
                             queue = queue_url,
+                        );
+
+                        break result;
+                    }
+                    Err(crate::CoffeeShopError::AWSDynamoDBTableDoesNotExist(table_name)) => {
+                        crate::error!(
+                            target: LOG_TARGET,
+                            "The DynamoDB table {table:?} does not exist; terminating barista.",
+                            table = table_name,
                         );
 
                         break result;
