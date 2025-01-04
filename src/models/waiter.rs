@@ -11,7 +11,10 @@ use std::{
     },
 };
 
-use axum::extract::{Json, Query};
+use axum::extract::{
+    rejection::{JsonRejection, QueryRejection},
+    Json, Query,
+};
 use axum::{
     http::{header, StatusCode},
     response::IntoResponse,
@@ -23,7 +26,7 @@ use super::{
     message::{self, QueryType},
     Machine, Order, Shop,
 };
-use crate::{helpers, CoffeeShopError};
+use crate::{errors::handling::IntoCoffeeShopError, helpers, CoffeeShopError};
 
 const LOG_TARGET: &str = "coffeeshop::models::waiter";
 
@@ -272,26 +275,54 @@ where
                 axum::routing::post({
                     let arc_self = Arc::clone(self);
 
-                    |Query(params): Query<Q>, body: Json<I>| async move {
-                        // Check if the request is synchronous or asynchronous,
-                        // and call the appropriate method.
-                        // Pre-convert all errors to responses, so that the typing
-                        // is consistent.
-                        if params.is_async() {
-                            crate::info!(
-                                target: LOG_TARGET,
-                                "Received an asynchronous request.",
-                            );
-                            arc_self
-                                .async_request(Query(params), body)
-                                .await
-                                .into_response()
-                        } else {
-                            crate::info!(
-                                target: LOG_TARGET,
-                                "Received a blocking request.",
-                            );
-                            arc_self.request(Query(params), body).await.into_response()
+                    // Add Error handling to the request handler.
+                    |query_result: Result<Query<Q>, QueryRejection>,
+                     json_result: Result<Json<I>, JsonRejection>| async move {
+                        match (query_result, json_result) {
+                            (Err(query_rejection), _) => {
+                                let err = query_rejection.into_coffeeshop_error();
+
+                                crate::warn!(
+                                    target: LOG_TARGET,
+                                    "Query rejection for /request: {:#?}",
+                                    err
+                                );
+
+                                err.into_response()
+                            }
+                            (_, Err(json_rejection)) => {
+                                let err = json_rejection.into_coffeeshop_error();
+
+                                crate::warn!(
+                                    target: LOG_TARGET,
+                                    "JSON rejection for /request: {:#?}",
+                                    err
+                                );
+
+                                err.into_response()
+                            }
+                            (Ok(Query(params)), Ok(json)) => {
+                                // Check if the request is synchronous or asynchronous,
+                                // and call the appropriate method.
+                                // Pre-convert all errors to responses, so that the typing
+                                // is consistent.
+                                if params.is_async() {
+                                    crate::info!(
+                                        target: LOG_TARGET,
+                                        "Received an asynchronous request.",
+                                    );
+                                    arc_self
+                                        .async_request(Query(params), json)
+                                        .await
+                                        .into_response()
+                                } else {
+                                    crate::info!(
+                                        target: LOG_TARGET,
+                                        "Received a blocking request.",
+                                    );
+                                    arc_self.request(Query(params), json).await.into_response()
+                                }
+                            }
                         }
                     }
                 }),
@@ -301,7 +332,22 @@ where
                 axum::routing::get({
                     let arc_self = Arc::clone(self);
 
-                    |query| async move { arc_self.async_retrieve(query).await }
+                    |query_result: Result<Query<message::TicketQuery>, QueryRejection>| async move {
+                        match query_result {
+                            Err(rejection) => {
+                                let err = rejection.into_coffeeshop_error();
+
+                                crate::warn!(
+                                    target: LOG_TARGET,
+                                    "Query rejection for /retrieve: {:#?}",
+                                    err
+                                );
+
+                                err.into_response()
+                            }
+                            Ok(query) => arc_self.async_retrieve(query).await.into_response(),
+                        }
+                    }
                 }),
             );
 
@@ -309,7 +355,25 @@ where
         app = additional_routes.fold(app, |app, (path, handler)| app.route(path, handler));
 
         // 404 Fallback.
-        app = app.fallback(|uri| async { CoffeeShopError::InvalidRoute(uri) });
+        app = app.fallback(|uri| async {
+            crate::warn!(
+                target: LOG_TARGET,
+                "Received a request for an invalid route: {}",
+                uri
+            );
+
+            CoffeeShopError::InvalidRoute(uri)
+        });
+
+        // Method not allowed fallback.
+        app = app.method_not_allowed_fallback(|| async {
+            crate::warn!(
+                target: LOG_TARGET,
+                "Received a request with an invalid method.",
+            );
+
+            CoffeeShopError::InvalidMethod
+        });
 
         // Add the trace and timeout layers to the app.
         if let Some(max_execution_time) = max_execution_time {

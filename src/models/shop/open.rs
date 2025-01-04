@@ -11,6 +11,8 @@ use crate::{
     CoffeeShopError,
 };
 
+const LOG_TARGET: &str = "coffeeshop::models::shop";
+
 impl<Q, I, O, F> Shop<Q, I, O, F>
 where
     Q: message::QueryType + 'static,
@@ -54,11 +56,11 @@ where
             async {
                 tokio::select!(
                     _ = tokio::signal::ctrl_c() => {
-                        crate::warn!("Received termination signal. Shutting down the shop.");
+                        crate::warn!(target: LOG_TARGET, "Received termination signal. Shutting down the shop.");
                         shutdown_signal.clone().notify_waiters();
                     },
                     _ = shutdown_signal.notified() => {
-                        crate::warn!("A 3rd party had requested shutdown; stop listening for SIGTERM.");
+                        crate::warn!(target: LOG_TARGET, "A 3rd party had requested shutdown; stop listening for SIGTERM.");
                     },
                 );
 
@@ -68,24 +70,30 @@ where
             async {
                 self.waiter.serve(additional_routes, shutdown_signal.clone(), max_execution_time).await
                 .inspect_err(
-                    |err| crate::error!("The waiter has stopped serving requests. Error: {:?}", err)
+                    |err| crate::error!(target: LOG_TARGET, "The waiter has stopped serving requests. Error: {:?}", err)
                 )
             },
             // Baristas.
             async {
                 Barista::serve_all(&self.baristas, shutdown_signal.clone()).await
                 .inspect_err(
-                    |err| crate::error!("The baristas have stopped serving requests. Error: {:?}", err)
+                    |err| crate::error!(target: LOG_TARGET, "The baristas have stopped serving requests. Error: {:?}", err)
                 )
             },
             // Announcer.
             async {
                 self.announcer.listen_for_announcements(shutdown_signal.clone()).await
                 .inspect_err(
-                    |err| crate::error!("The announcer has stopped listening for announcements. Error: {:?}", err)
+                    |err| crate::error!(target: LOG_TARGET, "The announcer has stopped listening for announcements. Error: {:?}", err)
                 )
             },
         }
-        .map(|_| ())
+        .map(|_|
+            crate::info!(target: LOG_TARGET, "The shop has been closed. See you!")
+        )
+        .inspect_err(
+            |_|
+                crate::error!(target: LOG_TARGET, "The shop has been shutdown due to the above error.")
+        )
     }
 }

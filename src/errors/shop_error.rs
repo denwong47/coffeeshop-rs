@@ -52,6 +52,9 @@ pub enum CoffeeShopError {
         message: String,
     },
 
+    #[error("The request Method is not allowed for this endpoint.")]
+    InvalidMethod,
+
     #[error("Endpoint {0} is not found on this server. Please consult the API documentation.")]
     InvalidRoute(http::Uri),
 
@@ -289,6 +292,7 @@ impl CoffeeShopError {
             CoffeeShopError::AWSQueueDoesNotExist(_) => http::StatusCode::BAD_GATEWAY,
             CoffeeShopError::InvalidConfiguration { .. } => http::StatusCode::INTERNAL_SERVER_ERROR,
             CoffeeShopError::InvalidHeader { .. } => http::StatusCode::NOT_ACCEPTABLE,
+            CoffeeShopError::InvalidMethod => http::StatusCode::METHOD_NOT_ALLOWED,
             CoffeeShopError::InvalidMulticastAddress(_) => http::StatusCode::BAD_REQUEST,
             CoffeeShopError::InvalidMulticastMessage { .. } => http::StatusCode::BAD_REQUEST,
             CoffeeShopError::InvalidRoute(_) => http::StatusCode::NOT_FOUND,

@@ -41,31 +41,39 @@ impl IntoCoffeeShopError for JsonRejection {
     fn into_coffeeshop_error(self) -> CoffeeShopError {
         match &self {
             JsonRejection::BytesRejection(err) =>
-                // TODO Placeholder error message for now;
+            // TODO Placeholder error message for now;
+            {
                 CoffeeShopError::InvalidPayload {
                     kind: "BytesRejection",
-                    message: format!("Failed to buffer body: {}", err.body_text())
-                },
+                    message: format!("Failed to buffer body: {}", err.body_text()),
+                }
+            }
             JsonRejection::JsonDataError(err) =>
-                // TODO Placeholder error message for now;
+            // TODO Placeholder error message for now;
+            {
                 CoffeeShopError::InvalidPayload {
                     kind: "JsonDataError",
-                    message: format!("Failed to parse JSON: {}", err.body_text())
-                },
+                    message: err.body_text(),
+                }
+            }
             JsonRejection::JsonSyntaxError(err) =>
-                // TODO Placeholder error message for now;
-                CoffeeShopError::MalformedJsonPayload(
-                    format!("Invalid JSON syntax: {}", err.body_text())
+            // TODO Placeholder error message for now;
+            {
+                CoffeeShopError::MalformedJsonPayload(format!(
+                    "Invalid JSON syntax: {}",
+                    err.body_text()
+                ))
+            }
+            JsonRejection::MissingJsonContentType(err) => CoffeeShopError::InvalidHeader {
+                key: http::header::CONTENT_TYPE,
+                message: format!(
+                    "This endpoint only accepts JSON payload; {}. Please check your headers.",
+                    err.body_text()
                 ),
-            JsonRejection::MissingJsonContentType(err) =>
-                // TODO Placeholder error message for now;
-                CoffeeShopError::InvalidHeader {
-                    key: http::header::CONTENT_TYPE,
-                    message: format!("This endpoint only accepts JSON payload; please specify the `Content-Type` in your headers: {}", err.body_text())
-                },
+            },
             _ => CoffeeShopError::InvalidPayload {
                 kind: "UnknownJsonRejection",
-                message: format!("Unknown JSON rejection: {:?}", self.body_text())
+                message: format!("Unknown JSON rejection: {:?}", self.body_text()),
             },
         }
     }
