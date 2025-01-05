@@ -200,7 +200,7 @@ impl Machine<TestQuery, TestPayload, TestResult> for TestMachine {
 }
 
 /// Create a new shop for testing.
-pub async fn new_shop(barista_count: usize) -> Arc<TestShop> {
+pub async fn new_shop() -> Arc<TestShop> {
     Shop::new(
         LOG_TARGET.to_owned(),
         TestMachine::new(),
@@ -214,7 +214,6 @@ pub async fn new_shop(barista_count: usize) -> Arc<TestShop> {
                 .await
                 .expect("Failed to get AWS configuration."),
         ),
-        barista_count,
     )
     .await
     .expect("Failed to create the shop.")

@@ -13,9 +13,6 @@ use coffeeshop::prelude::*;
 type HelloShop =
     Shop<models::HelloQuery, models::HelloPayload, models::HelloResult, machine::HelloMachine>;
 
-/// The number of baristas to spawn in the shop.
-const BARISTA_COUNT: usize = 3;
-
 /// The most basic form of a coffee shop, using the test models.
 #[tokio::main]
 async fn main() -> Result<(), coffeeshop::CoffeeShopError> {
@@ -26,7 +23,6 @@ async fn main() -> Result<(), coffeeshop::CoffeeShopError> {
         machine::HelloMachine::default(),
         config,
         None,
-        BARISTA_COUNT,
     )
     .await?;
 

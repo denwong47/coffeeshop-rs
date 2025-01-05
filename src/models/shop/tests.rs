@@ -37,7 +37,7 @@ mod functions_only {
             #[cfg(feature = "test_on_aws")]
             /// Testing the inner workings of the shop without actually opening it.
             async fn $name() {
-                let shop = new_shop(1).await;
+                let shop = new_shop().await;
 
                 let waiter = &shop.waiter;
                 let barista = &shop.baristas.first().expect("No baristas available.");
@@ -175,7 +175,7 @@ mod announcer {
     #[tokio::test]
     #[serial_test::serial(uses_multicast)]
     async fn test_multicast() {
-        let shop = new_shop(1).await;
+        let shop = new_shop().await;
 
         let ticket = get_random_ticket();
 
@@ -256,7 +256,7 @@ mod shop {
             #[serial_test::serial(uses_multicast)]
             #[cfg(feature = "test_on_aws")]
             async fn $name() {
-                let shop = new_shop(3).await;
+                let shop = new_shop().await;
 
                 let shutdown_signal = Arc::new(Notify::new());
 

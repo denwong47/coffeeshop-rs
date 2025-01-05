@@ -117,7 +117,6 @@ where
         coffee_machine: F,
         mut config: Config,
         aws_config: Option<helpers::aws::SdkConfig>,
-        barista_count: usize,
     ) -> Result<Arc<Self>, CoffeeShopError> {
         // If the table has not been set, use the default table name with the prefix.
         // Otherwise, remove the name from `config` and put it into the [`Shop`].
@@ -140,6 +139,7 @@ where
         let temp_dir = tempfile::TempDir::new()
             .map_err(|err| CoffeeShopError::TempDirCreationFailure(err.to_string()))?;
 
+        let baristas = config.baristas;
         let shop = Arc::new_cyclic(|me| Self {
             name,
             orders: HashMap::new().into(),
@@ -150,7 +150,7 @@ where
             aws_config,
             temp_dir,
             waiter: Arc::new(Waiter::new(me.clone())),
-            baristas: (0..barista_count)
+            baristas: (0..baristas)
                 .map(|_| Barista::new(me.clone()))
                 .collect::<Vec<Barista<Q, I, O, F>>>(),
             announcer: Announcer::new(me.clone()),

@@ -4,12 +4,13 @@ HTTP host framework for load balanced workers using AWS SQS and DynamoDB backend
 
 ## `TODO` List
 
-- [ ] Make Axum return JSONs for errors
-- [ ] Write Python hammer test script
-- [ ] If DynamoDB table is missing, exit the whole shop
+- [X] Make Axum return JSONs for errors
+- [X] Write Python hammer test script
+- [X] If DynamoDB table is missing, exit the whole shop
 - [ ] Unique errors for `SdkError`
 - [ ] Debug `Shop` unit tests failing sporadically because SQS was dropping messages, suspected due to
   unsafe future cancellations
+- [ ] Find out why Mac is throwing a `Dispatch Error`.
 
 ### Why AWS?
 
