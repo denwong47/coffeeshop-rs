@@ -7,3 +7,9 @@
 **/*.tfvars
 **/.terraform
 **/.*.hcl
+
+**/__pycache__
+**/*.pyc
+**/.python-version
+
+**/.vscode
