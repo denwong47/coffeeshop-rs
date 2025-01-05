@@ -1,8 +1,13 @@
+//! A simple example of how to setup and run a [`Shop`].
+
 mod machine;
 mod models;
 
 use clap::Parser;
 use coffeeshop::prelude::{Config, Shop};
+
+#[cfg(doc)]
+use coffeeshop::prelude::*;
 
 /// Alias for the shop type, combining all the necessary types.
 type HelloShop =
