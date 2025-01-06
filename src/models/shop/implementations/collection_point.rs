@@ -1,10 +1,14 @@
+// TODO This module needs more logging statements, and
+// periodic_purge_stale_orders needs to be implemented.
+
 use crate::{
     helpers::dynamodb::{self, HasDynamoDBConfiguration},
     models::{message, Machine, Orders, Shop},
     CoffeeShopError,
 };
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::sync::RwLock;
+use std::sync::Arc;
+use tokio::sync::{Notify, RwLock};
 
 #[cfg(doc)]
 use crate::models::{Barista, Order, Waiter};
@@ -84,18 +88,6 @@ where
     O: Serialize + DeserializeOwned + Send + Sync,
     F: Machine<Q, I, O>,
 {
-    /// Listen to the multicast messages from the [`Barista`]s.
-    ///
-    /// This function never returns; it will simply listen for multicast messages
-    /// and spawn handlers for each received message to update the [`Order`]s.
-    ///
-    /// # Note
-    ///
-    /// Internal function: this function is not meant to be called directly.
-    pub async fn listen_for_multicast(&self) -> Result<(), CoffeeShopError> {
-        todo!()
-    }
-
     /// Check DynamoDB for newly fulfilled [`Order`]s.
     ///
     /// # Note
@@ -128,5 +120,37 @@ where
         }
 
         Ok(())
+    }
+
+    /// Periodically check DynamoDB for newly fulfilled [`Order`]s.
+    ///
+    /// This function will loop indefinitely until the program is terminated,
+    /// or the `shutdown_signal` is triggered.
+    pub async fn periodically_check_for_fulfilled_orders(
+        &self,
+        interval: tokio::time::Duration,
+        shutdown_signal: Arc<Notify>,
+    ) -> Result<(), CoffeeShopError> {
+        tokio::select! {
+            err = async {
+                loop {
+                    tokio::time::sleep(interval).await;
+                    if let Err(err) = self.check_for_fulfilled_orders().await {
+                        crate::error!(
+                            target: LOG_TARGET,
+                            "Failed to check for fulfilled orders, quitting: {}",
+                            err
+                        );
+                        break err;
+                    }
+                }
+            } => {
+                Err(err)
+            },
+            _ = shutdown_signal.notified() => {
+                crate::warn!(target: LOG_TARGET, "A 3rd party had requested shutdown; stop listening for SIGTERM.");
+                Ok(())
+            },
+        }
     }
 }

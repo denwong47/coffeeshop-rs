@@ -12,7 +12,7 @@ use crate::{
     CoffeeShopError,
 };
 
-const DEFAULT_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(10);
+const DEFAULT_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(20);
 
 mod functions_only {
     use crate::models::message::CombinedInput;

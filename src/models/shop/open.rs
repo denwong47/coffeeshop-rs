@@ -13,6 +13,9 @@ use crate::{
 
 const LOG_TARGET: &str = "coffeeshop::models::shop";
 
+/// The interval to check for fulfilled orders in DynamoDB.
+const CHECK_DYNAMODB_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(15);
+
 impl<Q, I, O, F> Shop<Q, I, O, F>
 where
     Q: message::QueryType + 'static,
@@ -85,6 +88,13 @@ where
                 self.announcer.listen_for_announcements(shutdown_signal.clone()).await
                 .inspect_err(
                     |err| crate::error!(target: LOG_TARGET, "The announcer has stopped listening for announcements. Error: {:?}", err)
+                )
+            },
+            // Shop periodic checking of DynamoDB as a final line of defence.
+            async {
+                self.periodically_check_for_fulfilled_orders(CHECK_DYNAMODB_INTERVAL, shutdown_signal.clone()).await
+                .inspect_err(
+                    |err| crate::error!(target: LOG_TARGET, "The shop has stopped checking for fulfilled orders. Error: {:?}", err)
                 )
             },
         }

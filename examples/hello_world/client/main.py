@@ -146,7 +146,7 @@ async def main(sync_count: int, async_count: int):
 
         results = await asyncio.gather(*coros)
 
-        good_results = []
+        good_results: list[HelloResponse] = []
         bad_results = []
         for (status, result) in results:
             if status == 200:
@@ -155,6 +155,12 @@ async def main(sync_count: int, async_count: int):
                 bad_results.append(result)
 
     print(f"Got {len(good_results)} good results and {len(bad_results)} bad results: {len(good_results) / (sync_count + async_count):.2%}")
+
+    all_good_greetings = set([
+        result["output"]["greeting"]
+        for result in good_results
+    ])
+    print(f"Got {len(all_good_greetings):,} unique greetings.")
 
     return good_results, bad_results
 

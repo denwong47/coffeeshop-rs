@@ -287,6 +287,8 @@ where
     ) -> Result<(), CoffeeShopError> {
         let mut message_count: u64 = 0;
 
+        // TODO Every once in a while, we should check with DynamoDB regardless of the multicast messages.
+
         // This is the main task that listens for multicast messages, to be raced against the shutdown signal.
         let task = async {
             loop {
