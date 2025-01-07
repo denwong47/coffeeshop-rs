@@ -208,7 +208,9 @@ pub async fn new_shop() -> Arc<TestShop> {
             .with_dynamodb_table(&get_dynamodb_table())
             .with_dynamodb_partition_key("identifier")
             .with_sqs_queue(get_queue_url())
-            .with_result_ttl(STALE_AGE.as_secs_f32()),
+            .with_result_ttl(STALE_AGE.as_secs_f32())
+            .with_baristas(3)
+            .unwrap(),
         Some(
             helpers::aws::get_aws_config()
                 .await

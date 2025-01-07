@@ -8,12 +8,13 @@ HTTP host framework for load balanced workers using AWS SQS and DynamoDB backend
 - [X] Write Python hammer test script
 - [X] If DynamoDB table is missing, exit the whole shop
 - [ ] Unique errors for `SdkError`
+- [ ] Some tickets are not deleted from SQS after processing
 - [ ] Debug `Shop` unit tests failing sporadically because SQS was dropping messages, suspected due to
   unsafe future cancellations
 - [ ] Swap out the compression algorithm for something simpler on single thread like `lzma`; given
   that the max SQS can handle is 256KB, time complexity is not a concern.
 - [ ] Find out why Mac is throwing a `Dispatch Error`.
-- [ ] Chunking for DynamoDB batch retrieval is not working, 189 items are being requested.
+- [X] Chunking for DynamoDB batch retrieval is not working, 189 items are being requested.
 
 ### Why AWS?
 

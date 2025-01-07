@@ -148,6 +148,41 @@ where
     Ok(vec![])
 }
 
+/// Split an iterator of tickets into chunks of 100 tickets each.
+pub fn tickets_into_chunks<'t>(
+    tickets: impl ExactSizeIterator<Item = &'t Ticket>,
+) -> Vec<Vec<&'t Ticket>> {
+    let chunks_count = (tickets.len() as f32 / 100.).ceil() as usize;
+    let chunk_size = (tickets.len() as f32 / chunks_count as f32).floor() as usize;
+    let mut remainder = tickets.len() % chunk_size;
+    // We can't use itertools here because `chunks` actually uses RefCell, which is not Send.
+
+    let mut tickets = tickets.collect::<Vec<_>>();
+    let mut chunks = vec![];
+
+    loop {
+        let target_size = if remainder > 0 {
+            remainder -= 1;
+            chunk_size + 1
+        } else {
+            chunk_size
+        };
+
+        if tickets.len() <= target_size {
+            // This allows us to avoid cloning the tickets without changing
+            // the ownership of the original vector.
+            let mut middleman = vec![];
+            std::mem::swap(&mut tickets, &mut middleman);
+            chunks.push(middleman);
+            break;
+        } else {
+            chunks.push(tickets.split_off(tickets.len() - target_size));
+        }
+    }
+
+    chunks
+}
+
 /// Get items that matches any given partition keys from a DynamoDB table.
 pub async fn get_items_by_tickets<C>(
     config: &C,
@@ -163,26 +198,7 @@ where
         return Ok(vec![]);
     }
 
-    let chunks_count = (tickets.len() as f32 / 100.).ceil() as usize;
-    let chunk_size = (tickets.len() as f32 / chunks_count as f32).ceil() as usize;
-    // We can't use itertools here because `chunks` actually uses RefCell, which is not Send.
-    let chunks = {
-        let mut tickets = tickets.collect::<Vec<_>>();
-        let mut chunks = vec![];
-
-        loop {
-            if tickets.len() <= chunk_size {
-                let mut middleman = vec![];
-                std::mem::swap(&mut tickets, &mut middleman);
-                chunks.push(middleman);
-                break;
-            } else {
-                chunks.push(tickets.split_off(chunk_size));
-            }
-        }
-
-        chunks
-    };
+    let chunks = tickets_into_chunks(tickets);
 
     futures::future::try_join_all(
         // Iterate the chunks and get the items for each chunk.
@@ -282,4 +298,49 @@ where
                     CoffeeShopError::ResultNotFound(ticket.to_string())
                 })
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a vector of [`Ticket`]s for testing.
+    fn build_tickets(size: usize) -> Vec<Ticket> {
+        (1..=size).map(|i| i.to_string()).collect()
+    }
+
+    macro_rules! create_test {
+        (
+            $name:ident(
+                $size:literal,
+                $expected:expr
+            )
+        ) => {
+            #[test]
+            fn $name() {
+                let tickets = build_tickets($size);
+
+                let chunks = tickets_into_chunks(tickets.iter());
+                let chunk_sizes = chunks.iter().map(|chunk| chunk.len()).collect::<Vec<_>>();
+
+                assert_eq!(&chunk_sizes, $expected);
+            }
+        };
+    }
+
+    create_test!(test_1_tickets(1, &[1]));
+    create_test!(test_2_tickets(2, &[2]));
+    create_test!(test_99_tickets(99, &[99]));
+    create_test!(test_100_tickets(100, &[100]));
+    create_test!(test_101_tickets(101, &[51, 50]));
+    create_test!(test_102_tickets(102, &[51, 51]));
+    create_test!(test_103_tickets(103, &[52, 51]));
+    create_test!(test_199_tickets(199, &[100, 99]));
+    create_test!(test_200_tickets(200, &[100, 100]));
+    create_test!(test_201_tickets(201, &[67, 67, 67]));
+    create_test!(test_202_tickets(202, &[68, 67, 67]));
+    create_test!(test_1234_tickets(
+        1234,
+        &[95, 95, 95, 95, 95, 95, 95, 95, 95, 95, 95, 95, 94]
+    ));
 }

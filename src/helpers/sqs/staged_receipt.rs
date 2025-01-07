@@ -3,7 +3,7 @@ use aws_sdk_sqs as sqs;
 use std::sync::OnceLock;
 
 use crate::{
-    helpers::{serde::deserialize, sqs::HasSQSConfiguration},
+    helpers::{retry, serde::deserialize, sqs::HasSQSConfiguration},
     models::{message, Ticket},
     CoffeeShopError,
 };
@@ -20,6 +20,9 @@ const LOG_TARGET: &str = "coffeeshop::helpers::sqs::staged_receipt";
 /// When there is no message in the queue, the [`Barista`]s will wait for this
 /// duration before logging a message, and then checking the queue again.
 const DEFAULT_WAIT_TIME: tokio::time::Duration = tokio::time::Duration::from_secs(20);
+
+/// The maximum number of times to retry completing the message.
+const MAX_COMPLETION_RETRIES: usize = 3;
 
 /// A received message from SQS that is staged for processing, before
 /// a reply to SQS had been sent on deleting the message or its visibility
@@ -157,46 +160,53 @@ where
             })
         })?;
 
-        if result {
-            crate::info!(
-                target: LOG_TARGET,
-                "Completed message processing for ticket {}, deleting it from the queue.",
-                self.ticket
-            );
+        // Create a task factory for the retry; this will be used to complete the message.
+        // Each time the task failed, a new future to do the same task will be created,
+        // up to a maximum of 3 times.
+        let task_factory = || async {
+            if result {
+                crate::info!(
+                    target: LOG_TARGET,
+                    "Completed message processing for ticket {}, deleting it from the queue.",
+                    self.ticket
+                );
 
-            // Delete the message from the queue.
-            self.client
-                .delete_message()
-                .queue_url(&self.queue_url)
-                .receipt_handle(&self.receipt_handle)
-                .send()
-                .await
-                .map_err(
-                    // TODO Change the error type.
-                    |err| CoffeeShopError::AWSSdkError(format!("{:?}", err)),
-                )
-                .map(|_output| ())
-        } else {
-            crate::warn!(
-                target: LOG_TARGET,
-                "Aborting message processing for ticket {}, returning it to the queue.",
-                self.ticket
-            );
+                // Delete the message from the queue.
+                self.client
+                    .delete_message()
+                    .queue_url(&self.queue_url)
+                    .receipt_handle(&self.receipt_handle)
+                    .send()
+                    .await
+                    .map_err(
+                        // TODO Change the error type.
+                        |err| CoffeeShopError::AWSSdkError(format!("{:?}", err)),
+                    )
+                    .map(|_output| ())
+            } else {
+                crate::warn!(
+                    target: LOG_TARGET,
+                    "Aborting message processing for ticket {}, returning it to the queue.",
+                    self.ticket
+                );
 
-            // Change the visibility of the message back to visible.
-            self.client
-                .change_message_visibility()
-                .queue_url(&self.queue_url)
-                .receipt_handle(&self.receipt_handle)
-                .visibility_timeout(0)
-                .send()
-                .await
-                .map_err(
-                    // TODO Change the error type.
-                    |err| CoffeeShopError::AWSSdkError(format!("{:?}", err)),
-                )
-                .map(|_output| ())
-        }
+                // Change the visibility of the message back to visible.
+                self.client
+                    .change_message_visibility()
+                    .queue_url(&self.queue_url)
+                    .receipt_handle(&self.receipt_handle)
+                    .visibility_timeout(0)
+                    .send()
+                    .await
+                    .map_err(
+                        // TODO Change the error type.
+                        |err| CoffeeShopError::AWSSdkError(format!("{:?}", err)),
+                    )
+                    .map(|_output| ())
+            }
+        };
+
+        retry::until_ok("complete SQS message", task_factory, MAX_COMPLETION_RETRIES).await
     }
 
     /// Abort the message processing.

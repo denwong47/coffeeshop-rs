@@ -270,12 +270,24 @@ where
         );
 
         // Delete the ticket from the queue, or put it back if the processing failed.
-        if result.is_ok() {
-            receipt.delete().await?;
+        let is_ok = result.is_ok();
+
+        if is_ok {
+            receipt.delete().await
         } else {
             // TODO stop these tickets from infinite retrying by putting them into a dead-letter queue.
-            receipt.abort().await?;
-        }
+            receipt.abort().await
+        }.unwrap_or_else(
+            |err| {
+                crate::error!(
+                    target: LOG_TARGET,
+                    "Failed to {action} ticket {ticket}, ignoring. This ticket may get executed again: {error:?}",
+                    action=if is_ok { "delete" } else { "abort" },
+                    ticket=&ticket,
+                    error=err,
+                );
+            }
+        );
 
         result.map(|_| ())
     }
