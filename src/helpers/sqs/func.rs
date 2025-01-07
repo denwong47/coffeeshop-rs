@@ -36,7 +36,6 @@ where
             CoffeeShopError::from_aws_sqs_send_message_error(sdk_err.into_service_error(), config)
         })?;
 
-    dbg!(&response);
     crate::info!(
         target: LOG_TARGET,
         "Sent message ID {message_id}.",

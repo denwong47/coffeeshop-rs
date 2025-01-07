@@ -1,5 +1,7 @@
 # Calling the modules from `infrastructure` directory to create the resources.
 
+data "aws_caller_identity" "current" {}
+
 module "dynamodb" {
   source          = "../../infrastructure/modules/dynamodb"
   coffeeshop_name = var.coffeeshop_name
@@ -21,8 +23,12 @@ module "iam_role" {
       identifiers = ["ec2.amazonaws.com"]
     },
     {
-      type        = "AWS"
-      identifiers = []
+      type = "AWS"
+      identifiers = [
+        "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root",
+        # Allow the current account to assume the role
+        data.aws_caller_identity.current.arn
+      ]
     }
   ]
   dynamodb = module.dynamodb.table

@@ -10,7 +10,10 @@ HTTP host framework for load balanced workers using AWS SQS and DynamoDB backend
 - [ ] Unique errors for `SdkError`
 - [ ] Debug `Shop` unit tests failing sporadically because SQS was dropping messages, suspected due to
   unsafe future cancellations
+- [ ] Swap out the compression algorithm for something simpler on single thread like `lzma`; given
+  that the max SQS can handle is 256KB, time complexity is not a concern.
 - [ ] Find out why Mac is throwing a `Dispatch Error`.
+- [ ] Chunking for DynamoDB batch retrieval is not working, 189 items are being requested.
 
 ### Why AWS?
 
