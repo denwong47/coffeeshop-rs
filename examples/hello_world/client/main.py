@@ -74,6 +74,7 @@ async def request_sync(
     Make a synchronous request to the hello endpoint.
     """
     start_time = timer.perf_counter()
+    print(f"Making blocking request for {name} in {language}...")
     response = await client.post(
         "http://localhost:7007/request",
         params={
@@ -102,6 +103,7 @@ async def request_async(
     Make an asynchronous request to the hello endpoint.
     """
     start_time = timer.perf_counter()
+    print(f"Making asynchronous request for {name} in {language}...")
     ticket = await client.post(
         "http://localhost:7007/request",
         params={
