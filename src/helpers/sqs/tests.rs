@@ -19,28 +19,24 @@ mod full_workflow {
     const TIMEOUT: Option<tokio::time::Duration> = Some(tokio::time::Duration::from_secs(20));
 
     /// Convenience function to get the statics for the test.
-    async fn get_statics() -> (SQSConfiguration, tempfile::TempDir) {
+    async fn get_statics() -> SQSConfiguration {
         let config = aws::get_aws_config()
             .await
             .expect("Failed to get AWS configuration.");
 
         let queue_url = get_queue_url();
-        let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory.");
 
-        (
-            SQSConfiguration {
-                queue_url,
-                aws_config: config,
-            },
-            temp_dir,
-        )
+        SQSConfiguration {
+            queue_url,
+            aws_config: config,
+        }
     }
 
     #[serial_test::serial(uses_sqs)]
     #[tokio::test]
     #[cfg(feature = "test_on_aws")]
     async fn get_from_empty_queue() {
-        let (config, ..) = get_statics().await;
+        let config = get_statics().await;
 
         let ticket_count = get_ticket_count(&config)
             .await
@@ -91,7 +87,7 @@ mod full_workflow {
     #[tokio::test]
     #[cfg(feature = "test_on_aws")]
     async fn put_and_delete_ticket() {
-        let (config, temp_dir) = get_statics().await;
+        let config = get_statics().await;
 
         // Building the queries and payloads.
         let query = TestQuery {
@@ -114,7 +110,6 @@ mod full_workflow {
         let ticket = put_ticket(
             &config,
             message::CombinedInput::new(query.clone(), Some(payload.clone())),
-            &temp_dir,
         )
         .await
         .expect("Failed to put the ticket into the queue.");
@@ -164,7 +159,7 @@ mod full_workflow {
     #[tokio::test]
     #[cfg(feature = "test_on_aws")]
     async fn put_and_abort_ticket() {
-        let (config, temp_dir) = get_statics().await;
+        let config = get_statics().await;
         let queue_url = config.sqs_queue_url();
 
         // Building the queries and payloads.
@@ -186,7 +181,6 @@ mod full_workflow {
         let ticket = put_ticket(
             &config,
             message::CombinedInput::new(query.clone(), Some(payload.clone())),
-            &temp_dir,
         )
         .await
         .expect("Failed to put the ticket into the queue.");

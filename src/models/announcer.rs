@@ -45,9 +45,9 @@ where
 
 impl<Q, I, O, F> Announcer<Q, I, O, F>
 where
-    Q: message::QueryType,
-    I: Serialize + DeserializeOwned + Send + Sync,
-    O: Serialize + DeserializeOwned + Send + Sync,
+    Q: message::QueryType + 'static,
+    I: Serialize + DeserializeOwned + Send + Sync + 'static,
+    O: Serialize + DeserializeOwned + Send + Sync + 'static,
     F: Machine<Q, I, O>,
 {
     /// Create a new, uninitialized announcer with the given shop.

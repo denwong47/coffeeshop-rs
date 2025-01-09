@@ -49,13 +49,12 @@ pub trait ToItem: Sized {
     type Output;
 
     /// Convert the successful processing result into a DynamoDB item.
-    async fn report_ticket_success<O: serde::Serialize + Send + Sync>(
+    async fn report_ticket_success<O: serde::Serialize + Send + Sync + 'static>(
         self,
         partition_key: &str,
         ticket: &Ticket,
         output: O,
         ttl: &tokio::time::Duration,
-        temp_dir: &tempfile::TempDir,
     ) -> Self::Output;
 
     /// Convert the failed processing result into a DynamoDB item.
@@ -74,14 +73,13 @@ pub trait ToItem: Sized {
         ticket: &Ticket,
         result: ProcessResult<O>,
         ttl: &tokio::time::Duration,
-        temp_dir: &tempfile::TempDir,
     ) -> Self::Output
     where
-        O: serde::Serialize + Send + Sync,
+        O: serde::Serialize + Send + Sync + 'static,
     {
         match result {
             Ok(output) => {
-                self.report_ticket_success(partition_key, ticket, output, ttl, temp_dir)
+                self.report_ticket_success(partition_key, ticket, output, ttl)
                     .await
             }
             Err(error) => {
@@ -96,15 +94,14 @@ pub trait ToItem: Sized {
 impl ToItem for dynamodb::operation::put_item::builders::PutItemFluentBuilder {
     type Output = Result<Self, CoffeeShopError>;
 
-    async fn report_ticket_success<O: serde::Serialize + Send + Sync>(
+    async fn report_ticket_success<O: serde::Serialize + Send + Sync + 'static>(
         self,
         partition_key: &str,
         ticket: &Ticket,
         output: O,
         ttl: &tokio::time::Duration,
-        temp_dir: &tempfile::TempDir,
     ) -> Self::Output {
-        let buffer = helpers::serde::serialize(&output, temp_dir).await?;
+        let buffer = helpers::serde::serialize(output).await?;
 
         Ok(add_common_items(self, partition_key, ticket, ttl)
             .item(
@@ -114,9 +111,7 @@ impl ToItem for dynamodb::operation::put_item::builders::PutItemFluentBuilder {
             .item(SUCCESS_KEY, dynamodb::types::AttributeValue::Bool(true))
             .item(
                 OUTPUT_KEY,
-                dynamodb::types::AttributeValue::B(dynamodb::primitives::Blob::new(
-                    buffer.read_to_end().await?,
-                )),
+                dynamodb::types::AttributeValue::B(dynamodb::primitives::Blob::new(buffer)),
             ))
     }
 

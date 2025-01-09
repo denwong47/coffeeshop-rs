@@ -19,17 +19,16 @@ pub async fn put_process_result<O>(
     config: &dyn HasDynamoDBConfiguration,
     ticket: &Ticket,
     result: ProcessResult<O>,
-    temp_dir: &tempfile::TempDir,
 ) -> Result<(), CoffeeShopError>
 where
-    O: serde::Serialize + Send + Sync,
+    O: serde::Serialize + Send + Sync + 'static,
 {
     let client = dynamodb::Client::new(config.aws_config());
     let table = config.dynamodb_table();
 
     client.put_item()
         .table_name(table)
-        .report_ticket_result(config.dynamodb_partition_key(), ticket, result, &config.dynamodb_ttl(), temp_dir).await?
+        .report_ticket_result(config.dynamodb_partition_key(), ticket, result, &config.dynamodb_ttl()).await?
         .send()
         .await
         .map_err(|sdk_err| {
@@ -216,7 +215,7 @@ pub async fn get_process_results_by_tickets<O, C>(
     tickets: impl ExactSizeIterator<Item = &Ticket>,
 ) -> Result<Vec<(Ticket, ProcessResultExport<O>)>, CoffeeShopError>
 where
-    O: DeserializeOwned + Send + Sync,
+    O: DeserializeOwned + Send + Sync + 'static,
     C: HasDynamoDBConfiguration,
 {
     get_items_by_tickets(config, tickets, None)
@@ -265,7 +264,7 @@ pub async fn get_process_result_by_ticket<O, C>(
     ticket: &Ticket,
 ) -> Result<ProcessResultExport<O>, CoffeeShopError>
 where
-    O: DeserializeOwned + Send + Sync,
+    O: DeserializeOwned + Send + Sync + 'static,
     C: HasDynamoDBConfiguration,
 {
     get_process_results_by_tickets(config, std::iter::once(ticket))
