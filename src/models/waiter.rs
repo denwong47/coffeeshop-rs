@@ -53,9 +53,9 @@ where
 
 impl<Q, I, O, F> Waiter<Q, I, O, F>
 where
-    Q: message::QueryType,
-    I: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
-    O: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
+    Q: message::QueryType + 'static,
+    I: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    O: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
     F: Machine<Q, I, O>,
 {
     /// Create a new [`Waiter`] instance.
@@ -149,7 +149,7 @@ where
 
         self.request_count.fetch_add(1, Ordering::Relaxed);
 
-        let ticket = helpers::sqs::put_ticket(shop.deref(), input, &shop.temp_dir).await?;
+        let ticket = helpers::sqs::put_ticket(shop.deref(), input).await?;
 
         Ok((ticket.clone(), shop.spawn_order(ticket).await))
     }

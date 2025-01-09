@@ -41,7 +41,7 @@ pub trait ToProcessResult {
         partition_key: &str,
     ) -> Result<(Ticket, ProcessResultExport<O>), CoffeeShopError>
     where
-        O: DeserializeOwned + Send + Sync;
+        O: DeserializeOwned + Send + Sync + 'static;
 }
 
 impl ToProcessResult for std::collections::HashMap<String, AttributeValue> {
@@ -61,7 +61,7 @@ impl ToProcessResult for std::collections::HashMap<String, AttributeValue> {
         partition_key: &str,
     ) -> Result<(Ticket, ProcessResultExport<O>), CoffeeShopError>
     where
-        O: DeserializeOwned + Send + Sync,
+        O: DeserializeOwned + Send + Sync + 'static,
     {
         match (
             self.remove(partition_key),

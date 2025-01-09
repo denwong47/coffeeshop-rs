@@ -44,8 +44,8 @@ where
 
 impl<Q, I> StagedReceipt<Q, I>
 where
-    Q: message::QueryType,
-    I: serde::de::DeserializeOwned + serde::Serialize,
+    Q: message::QueryType + 'static,
+    I: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
 {
     /// Create a new [`StagedReceipt`] instance.
     ///
@@ -106,7 +106,7 @@ where
                 deserialize(encoding::decode(&body).await?)
                 .inspect_err(
                     |err| {
-                        if let CoffeeShopError::ResultBinaryConversionError(_) = err {
+                        if let CoffeeShopError::BinaryConversionError(_) = err {
                             #[cfg(test)]
                             crate::error!(
                                 target: LOG_TARGET,

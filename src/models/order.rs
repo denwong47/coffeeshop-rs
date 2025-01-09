@@ -101,7 +101,7 @@ impl Order {
     /// Attempt to fetch the process result from the DynamoDB.
     pub async fn fetch<O, C>(&self, config: &C) -> Result<ProcessResultExport<O>, CoffeeShopError>
     where
-        O: DeserializeOwned + Send + Sync,
+        O: DeserializeOwned + Send + Sync + 'static,
         C: helpers::dynamodb::HasDynamoDBConfiguration,
     {
         helpers::dynamodb::get_process_result_by_ticket(config, &self.ticket).await
@@ -136,7 +136,7 @@ impl Order {
         config: &C,
     ) -> Result<ProcessResultExport<O>, CoffeeShopError>
     where
-        O: DeserializeOwned + Send + Sync,
+        O: DeserializeOwned + Send + Sync + 'static,
         C: helpers::dynamodb::HasDynamoDBConfiguration,
     {
         self.wait_until_complete().await?;

@@ -76,10 +76,13 @@ pub enum CoffeeShopError {
     ListenerCreationFailure(String, SocketAddr),
 
     #[error("Could not serialize the payload: {0}")]
-    ResultBinaryConversionError(#[from] Box<bincode::ErrorKind>),
+    BinaryConversionError(#[from] Box<bincode::ErrorKind>),
 
     #[error("Could not compress/decompress the payload: {0}")]
-    ResultBinaryCompressionError(#[from] gzp::GzpError),
+    BinaryCompressionError(#[from] lzma::LzmaError),
+
+    #[error("The payload is too large after compression: {0} bytes")]
+    SizeLimitExceeded(usize),
 
     #[error("Temporary directory could not be created: {0}")]
     TempDirCreationFailure(String),
@@ -92,6 +95,9 @@ pub enum CoffeeShopError {
 
     #[error("The path for a temporary file is non-uniquely generated; this is improbable unless cleanup is not working. Please verify.")]
     NonUniqueTemporaryFile,
+
+    #[error("A thread related system resource error had occurred: {0}")]
+    ThreadResourceError(String),
 
     #[error("Failed to decode from Base64: {0}")]
     Base64DecodingError(#[from] base64::DecodeError),

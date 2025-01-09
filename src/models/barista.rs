@@ -50,9 +50,9 @@ where
 
 impl<Q, I, O, F> Barista<Q, I, O, F>
 where
-    Q: message::QueryType,
-    I: Serialize + DeserializeOwned + Send + Sync,
-    O: Serialize + DeserializeOwned + Send + Sync,
+    Q: message::QueryType + 'static,
+    I: Serialize + DeserializeOwned + Send + Sync + 'static,
+    O: Serialize + DeserializeOwned + Send + Sync + 'static,
     F: Machine<Q, I, O>,
 {
     /// Create a new [`Barista`] instance.
@@ -223,13 +223,8 @@ where
             };
 
             // Send the result to DynamoDB.
-            helpers::dynamodb::put_process_result(
-                shop.deref(),
-                &receipt.ticket,
-                process_result,
-                &shop.temp_dir,
-            )
-            .await?;
+            helpers::dynamodb::put_process_result(shop.deref(), &receipt.ticket, process_result)
+                .await?;
 
             crate::info!(
                 target: LOG_TARGET,

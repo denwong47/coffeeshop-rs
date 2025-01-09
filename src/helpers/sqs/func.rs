@@ -13,20 +13,19 @@ const LOG_TARGET: &str = "coffeeshop::helpers::sqs::func";
 pub async fn put_ticket<Q, I>(
     config: &dyn HasSQSConfiguration,
     input: message::CombinedInput<Q, I>,
-    temp_dir: &tempfile::TempDir,
 ) -> Result<Ticket, CoffeeShopError>
 where
-    Q: message::QueryType,
-    I: serde::de::DeserializeOwned + serde::Serialize,
+    Q: message::QueryType + 'static,
+    I: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
 {
     let client = sqs::Client::new(config.aws_config());
 
-    let serialized_input = helpers::serde::serialize(&input, temp_dir).await?;
+    let serialized_input = helpers::serde::serialize(input).await?;
 
     let response = client
         .send_message()
         .queue_url(config.sqs_queue_url())
-        .message_body(encoding::encode(&serialized_input.read_to_end().await?).await?)
+        .message_body(encoding::encode(&serialized_input).await?)
         .send()
         .await
         .inspect_err(
@@ -55,8 +54,8 @@ pub async fn retrieve_ticket<Q, I>(
     timeout: Option<tokio::time::Duration>,
 ) -> Result<StagedReceipt<Q, I>, CoffeeShopError>
 where
-    Q: message::QueryType,
-    I: serde::de::DeserializeOwned + serde::Serialize,
+    Q: message::QueryType + 'static,
+    I: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
 {
     // Call the `receive` method on the `StagedReceipt` struct.
     StagedReceipt::receive(config, timeout).await

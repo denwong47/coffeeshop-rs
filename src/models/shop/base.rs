@@ -88,9 +88,6 @@ where
     /// The AWS SDK configuration for the shop.
     pub aws_config: helpers::aws::SdkConfig,
 
-    /// Temporary Directory for serialization and deserialization.
-    pub(crate) temp_dir: tempfile::TempDir,
-
     /// Reference to the waiter that will serve incoming requests.
     pub waiter: Arc<Waiter<Q, I, O, F>>,
 
@@ -106,9 +103,9 @@ where
 
 impl<Q, I, O, F> Shop<Q, I, O, F>
 where
-    Q: message::QueryType,
-    I: Serialize + DeserializeOwned + Send + Sync,
-    O: Serialize + DeserializeOwned + Send + Sync,
+    Q: message::QueryType + 'static,
+    I: Serialize + DeserializeOwned + Send + Sync + 'static,
+    O: Serialize + DeserializeOwned + Send + Sync + 'static,
     F: Machine<Q, I, O>,
 {
     /// Create a new shop with the given name, coffee machine, and configuration.
@@ -136,9 +133,6 @@ where
             helpers::aws::get_aws_config().await?
         };
 
-        let temp_dir = tempfile::TempDir::new()
-            .map_err(|err| CoffeeShopError::TempDirCreationFailure(err.to_string()))?;
-
         let baristas = config.baristas;
         let shop = Arc::new_cyclic(|me| Self {
             name,
@@ -148,7 +142,6 @@ where
             sqs_queue,
             config,
             aws_config,
-            temp_dir,
             waiter: Arc::new(Waiter::new(me.clone())),
             baristas: (0..baristas)
                 .map(|_| Barista::new(me.clone()))

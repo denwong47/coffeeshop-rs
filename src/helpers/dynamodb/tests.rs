@@ -14,7 +14,7 @@ const TTL: tokio::time::Duration = tokio::time::Duration::from_secs(20);
 const PARTITION_KEY: &str = "identifier";
 
 /// Convenience function to get the statics for the test.
-async fn get_statics() -> (DynamoDBConfiguration, Ticket, tempfile::TempDir) {
+async fn get_statics() -> (DynamoDBConfiguration, Ticket) {
     let config = aws::get_aws_config()
         .await
         .expect("Failed to get AWS configuration.");
@@ -27,7 +27,6 @@ async fn get_statics() -> (DynamoDBConfiguration, Ticket, tempfile::TempDir) {
             aws_config: config,
         },
         get_random_ticket(),
-        tempfile::tempdir().expect("Failed to create temporary directory."),
     )
 }
 
@@ -41,13 +40,12 @@ mod put_items {
             #[tokio::test]
             #[cfg(feature = "test_on_aws")]
             async fn $name() {
-                let (config, ticket, temp_dir) = get_statics().await;
+                let (config, ticket) = get_statics().await;
 
                 put_process_result(
                     &config,
                     &ticket,
                     $expected_result,
-                    &temp_dir,
                 )
                 .await
                 .expect("Failed to put the processing result into the DynamoDB table.");
@@ -134,7 +132,7 @@ mod process_result_to_and_from_item {
         ) => {
             #[tokio::test]
             async fn $name() {
-                let (config, expected_ticket, temp_dir) = get_statics().await;
+                let (config, expected_ticket) = get_statics().await;
 
                 let client = dynamodb::Client::new(config.aws_config());
                 crate::info!(target: LOG_TARGET, "Creating a PutItemFluentBuilder to test {result:?}...", result=$expected_result);
@@ -145,7 +143,6 @@ mod process_result_to_and_from_item {
                         &expected_ticket,
                         $expected_result,
                         &config.dynamodb_ttl(),
-                        &temp_dir,
                     ).await.expect("Failed to report the ticket.");
 
                 // We don't actually need to send the request, we can extract the item from the builder.
