@@ -1,7 +1,5 @@
-use hashbrown::HashMap;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{marker::PhantomData, sync::Arc};
-use tokio::sync::RwLock;
 
 use super::super::{message, Announcer, Barista, Machine, Order, Orders, Ticket, Waiter};
 use crate::{cli::Config, helpers, CoffeeShopError};
@@ -64,7 +62,7 @@ where
 
     /// A map of tickets to their respective [`Notify`] events that are used to notify the
     /// waiter when a ticket is ready.
-    pub orders: RwLock<Orders>,
+    pub orders: Orders,
 
     /// The coffee machine that will process tickets.
     ///
@@ -136,7 +134,7 @@ where
         let baristas = config.baristas;
         let shop = Arc::new_cyclic(|me| Self {
             name,
-            orders: HashMap::new().into(),
+            orders: Orders::new(),
             coffee_machine,
             dynamodb_table,
             sqs_queue,
@@ -164,12 +162,12 @@ where
 
     /// Check if this shop has an order for a given ticket.
     pub async fn has_order(&self, ticket: &Ticket) -> bool {
-        self.orders.read().await.contains_key(ticket)
+        self.orders.contains_key(ticket)
     }
 
     /// Get the order for a given ticket in the shop.
     pub async fn get_order(&self, ticket: &Ticket) -> Option<Arc<Order>> {
-        self.orders.read().await.get(ticket).cloned()
+        self.orders.get(ticket).map(|order| order.clone())
     }
 
     /// Spawn a [`Order`] order for a given [`Ticket`] in the shop.
@@ -178,10 +176,8 @@ where
     /// before returning the [`Arc`] reference to the [`Order`].
     pub async fn spawn_order(&self, ticket: Ticket) -> Arc<Order> {
         self.orders
-            .write()
-            .await
             .entry(ticket.clone())
-            .or_insert_with_key(|_| Arc::new(Order::new(ticket)))
+            .or_insert_with(|| Arc::new(Order::new(ticket)))
             .clone()
     }
 }

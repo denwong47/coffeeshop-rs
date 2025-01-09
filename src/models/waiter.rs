@@ -83,7 +83,7 @@ where
             Json(message::StatusResponse {
                 metadata: message::ResponseMetadata::new(&self.start_time),
                 request_count: self.request_count.load(Ordering::Relaxed),
-                ticket_count: self.shop().orders.read().await.len(),
+                ticket_count: self.shop().orders.len(),
             }),
         )
     }
@@ -163,11 +163,15 @@ where
 
         let order = shop
             .orders
-            .read()
-            .await
             .get(&ticket)
-            .ok_or_else(|| CoffeeShopError::TicketNotFound(ticket.clone()))
-            .map(Arc::clone);
+            .map(|ref_item| ref_item.value().clone())
+            .ok_or_else(|| CoffeeShopError::TicketNotFound(ticket.clone()));
+
+        crate::info!(
+            target: LOG_TARGET,
+            "Took {} seconds to acquire read lock.",
+            start_time.elapsed().as_secs_f32()
+        );
 
         if let Err(err) = order {
             return err.into_response();

@@ -45,6 +45,10 @@ where
             ),
         >,
     ) -> Result<(), CoffeeShopError> {
+        // Initialize the logger for tokio-console.
+        #[cfg(feature = "debug")]
+        console_subscriber::init();
+
         // If the shutdown signal is not provided, create a new one.
         let shutdown_signal = shutdown_signal.unwrap_or_else(|| Arc::new(Notify::new()));
 
