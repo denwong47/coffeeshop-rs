@@ -86,6 +86,7 @@ where
                     "A Barista is waiting for the next ticket...",
                 );
                 let result = self.process_next_ticket(Some(BARISTA_REPORT_IDLE)).await;
+                tokio::task::yield_now().await;
 
                 // Inspect the result and decide what to do.
                 match &result {

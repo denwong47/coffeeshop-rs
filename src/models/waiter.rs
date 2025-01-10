@@ -24,7 +24,7 @@ use tower_http::{timeout::TimeoutLayer, trace::TraceLayer};
 
 use super::{
     message::{self, QueryType},
-    Machine, Order, Shop,
+    Machine, Order, Shop, Ticket,
 };
 use crate::{errors::handling::IntoCoffeeShopError, helpers, CoffeeShopError};
 
@@ -83,7 +83,7 @@ where
             Json(message::StatusResponse {
                 metadata: message::ResponseMetadata::new(&self.start_time),
                 request_count: self.request_count.load(Ordering::Relaxed),
-                ticket_count: self.shop().orders.read().await.len(),
+                ticket_count: self.shop().orders.len(),
             }),
         )
     }
@@ -154,45 +154,44 @@ where
         Ok((ticket.clone(), shop.spawn_order(ticket).await))
     }
 
-    /// An internal method to retrieve the result of a ticket from the
+    /// An internal method to retrieve the result of an [`Order`] from the
     /// AWS SQS queue.
-    pub async fn retrieve_order<'o>(&self, ticket: String) -> axum::response::Response {
+    pub async fn retrieve_order(&self, ticket: Ticket, order: &Order) -> axum::response::Response {
         let start_time = self.start_time;
 
+        // Wait for the order to complete.
+        order
+            .wait_and_fetch_when_complete::<O, _>(self.shop().deref())
+            .await
+            .map(|result| {
+                result.map(|output| {
+                    // Use the `OutputResponse` to create a response.
+                    message::OutputResponse::new(ticket.clone(), &output, &start_time)
+                        .into_response()
+                })
+            })
+            // Convert any remaining errors into responses.
+            .into_response()
+    }
+
+    /// An internal method to retrieve the result of a ticket from the
+    /// AWS SQS queue.
+    pub async fn retrieve_order_by_ticket<'o>(&self, ticket: Ticket) -> axum::response::Response {
         let shop = self.shop();
 
         let order = shop
             .orders
-            .read()
-            .await
             .get(&ticket)
-            .ok_or_else(|| CoffeeShopError::TicketNotFound(ticket.clone()))
-            .map(Arc::clone);
+            .map(|order| Arc::clone(order.deref()))
+            .ok_or_else(|| CoffeeShopError::TicketNotFound(ticket.clone()));
 
         if let Err(err) = order {
             return err.into_response();
         }
 
-        let order = order.unwrap();
+        let order: Arc<Order> = order.unwrap();
 
-        crate::info!(
-            target: LOG_TARGET,
-            "Waiting for order {} to complete...",
-            ticket
-        );
-
-        // Wait for the order to complete.
-        order
-            .wait_and_fetch_when_complete::<O, _>(shop.deref())
-            .await
-            .map(|result| {
-                result.map(|output| {
-                    // Use the `OutputResponse` to create a response.
-                    message::OutputResponse::new(ticket, &output, &start_time).into_response()
-                })
-            })
-            // Convert any remaining errors into responses.
-            .into_response()
+        self.retrieve_order(ticket, &order).await
     }
 
     /// An internal method to retrieve the result of a ticket with a timeout;
@@ -215,12 +214,12 @@ where
                     );
                     Err::<(), _>(CoffeeShopError::RetrieveTimeout(timeout)).into_response()
                 }
-                result = self.retrieve_order(ticket) => {
+                result = self.retrieve_order_by_ticket(ticket) => {
                     result
                 }
             }
         } else {
-            self.retrieve_order(ticket).await
+            self.retrieve_order_by_ticket(ticket).await
         }
     }
 
@@ -232,10 +231,11 @@ where
     pub async fn create_and_retrieve_order(
         &self,
         input: message::CombinedInput<Q, I>,
-        timeout: Option<tokio::time::Duration>,
+        // TODO Re-implement this
+        _timeout: Option<tokio::time::Duration>,
     ) -> axum::response::Response {
         match self.create_order(input).await {
-            Ok((ticket, _order)) => self.retrieve_order_with_timeout(ticket, timeout).await,
+            Ok((ticket, order)) => self.retrieve_order(ticket, &order).await,
             Err(err) => err.into_response(),
         }
     }

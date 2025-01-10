@@ -1,7 +1,6 @@
-use hashbrown::HashMap;
+use chashmap::CHashMap;
 use serde::{de::DeserializeOwned, Serialize};
-use std::{marker::PhantomData, sync::Arc};
-use tokio::sync::RwLock;
+use std::{marker::PhantomData, ops::Deref, sync::Arc};
 
 use super::super::{message, Announcer, Barista, Machine, Order, Orders, Ticket, Waiter};
 use crate::{cli::Config, helpers, CoffeeShopError};
@@ -64,7 +63,7 @@ where
 
     /// A map of tickets to their respective [`Notify`] events that are used to notify the
     /// waiter when a ticket is ready.
-    pub orders: RwLock<Orders>,
+    pub orders: Orders,
 
     /// The coffee machine that will process tickets.
     ///
@@ -142,7 +141,7 @@ where
         let baristas = config.baristas;
         let shop = Arc::new_cyclic(|me| Self {
             name,
-            orders: HashMap::new().into(),
+            orders: CHashMap::new(),
             coffee_machine,
             dynamodb_table,
             sqs_queue,
@@ -171,12 +170,14 @@ where
 
     /// Check if this shop has an order for a given ticket.
     pub async fn has_order(&self, ticket: &Ticket) -> bool {
-        self.orders.read().await.contains_key(ticket)
+        self.orders.contains_key(ticket)
     }
 
     /// Get the order for a given ticket in the shop.
     pub async fn get_order(&self, ticket: &Ticket) -> Option<Arc<Order>> {
-        self.orders.read().await.get(ticket).cloned()
+        self.orders
+            .get(ticket)
+            .map(|order| Arc::clone(order.deref()))
     }
 
     /// Spawn a [`Order`] order for a given [`Ticket`] in the shop.
@@ -184,11 +185,27 @@ where
     /// Get the ticket if it exists, otherwise create a new one
     /// before returning the [`Arc`] reference to the [`Order`].
     pub async fn spawn_order(&self, ticket: Ticket) -> Arc<Order> {
-        self.orders
-            .write()
+        // Theoretically we can use a `get_order` at this point to reduce the
+        // need of Write lock on the bucket.
+
+        let start_time = tokio::time::Instant::now();
+        self.orders.upsert(
+            ticket.clone(),
+            || Arc::new(Order::new(ticket.clone())),
+            // We don't need to do anything if the order already exists;
+            // we just need to ensure we don't check for the order's existence
+            // before insertion as that would be a race window for the order to be
+            // created by another thread.
+            |_| (),
+        );
+        crate::debug!(
+            "Spawning order for ticket {} took {}ms",
+            ticket,
+            start_time.elapsed().as_secs_f32()
+        );
+
+        self.get_order(&ticket)
             .await
-            .entry(ticket.clone())
-            .or_insert_with_key(|_| Arc::new(Order::new(ticket)))
-            .clone()
+            .expect("Order should exist after spawning it; this should be unreachable.")
     }
 }

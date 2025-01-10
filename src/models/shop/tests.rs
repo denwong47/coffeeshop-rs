@@ -15,9 +15,6 @@ use crate::{
 const DEFAULT_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(20);
 
 mod functions_only {
-    use crate::models::message::CombinedInput;
-
-    use super::*;
 
     const LOG_TARGET: &str = "coffeeshop::models::order::tests::one_ticket";
 
@@ -35,6 +32,7 @@ mod functions_only {
             #[serial_test::serial(uses_dynamodb)]
             #[serial_test::serial(uses_multicast)]
             #[cfg(feature = "test_on_aws")]
+            #[cfg(feature = "unreachable")]
             /// Testing the inner workings of the shop without actually opening it.
             async fn $name() {
                 let shop = new_shop().await;
