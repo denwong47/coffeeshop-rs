@@ -31,7 +31,7 @@ impl Machine<models::HelloQuery, models::HelloPayload, models::HelloResult> for 
         let name = input.unwrap().name.as_str();
 
         // Arbitrary error to show how to return an error.
-        if name.to_ascii_lowercase() == "little timmy" {
+        if name.eq_ignore_ascii_case("little timmy") {
             return Err(CoffeeMachineError::new(
                 axum::http::StatusCode::FORBIDDEN,
                 "ForbiddenUser".to_owned(),
