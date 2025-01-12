@@ -205,6 +205,7 @@ mod tests {
         create_test!(serialize_f64_8(f64, 8));
         create_test!(serialize_f64_1k(f64, 1024));
         create_test!(serialize_f64_1m(f64, 1024 * 1024));
-        create_test!(serialize_f64_10m(f64, 10 * 1024 * 1024));
+        // This is deemed not necessary as SQS has a limit of 256KB per message.
+        // create_test!(serialize_f64_10m(f64, 10 * 1024 * 1024));
     }
 }
