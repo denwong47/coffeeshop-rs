@@ -2,7 +2,6 @@
 //!
 
 pub mod aws;
-pub mod buffer;
 pub mod dynamodb;
 pub mod multicast;
 pub mod order_chain;
