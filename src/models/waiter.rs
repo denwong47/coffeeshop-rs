@@ -155,7 +155,7 @@ where
 
     /// An internal method to retrieve the result of a ticket from the
     /// AWS SQS queue.
-    pub async fn retrieve_order<'o>(&self, ticket: String) -> axum::response::Response {
+    pub async fn retrieve_order(&self, ticket: String) -> axum::response::Response {
         let start_time = self.start_time;
 
         let shop = self.shop();
