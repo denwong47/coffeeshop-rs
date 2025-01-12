@@ -111,7 +111,18 @@ where
         for segment in self.orders().iter().await {
             let result = found_results.get(segment.key());
             if let Some(result) = result {
-                segment.value().complete(*result)?;
+                segment.value().complete(*result).or_else(|err| {
+                    if let CoffeeShopError::ResultAlreadySet = err {
+                        crate::warn!(
+                            target: LOG_TARGET,
+                            "Result for ticket {} has already been set; ignoring.",
+                            segment.key()
+                        );
+                        Ok(())
+                    } else {
+                        Err(err)
+                    }
+                })?;
             }
         }
 

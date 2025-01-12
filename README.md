@@ -11,10 +11,11 @@ HTTP host framework for load balanced workers using AWS SQS and DynamoDB backend
 - [ ] Some tickets are not deleted from SQS after processing
 - [ ] Debug `Shop` unit tests failing sporadically because SQS was dropping messages, suspected due to
   unsafe future cancellations
-- [ ] Swap out the compression algorithm for something simpler on single thread like `lzma`; given
+- [X] Swap out the compression algorithm for something simpler on single thread like `lzma`; given
   that the max SQS can handle is 256KB, time complexity is not a concern.
 - [ ] Find out why Mac is throwing a `Dispatch Error`.
 - [X] Chunking for DynamoDB batch retrieval is not working, 189 items are being requested.
+- [ ] `create_and_retrieve_order` has some shockingly bad performance, need to investigate.
 
 ### Why AWS?
 
