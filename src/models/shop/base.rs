@@ -1,9 +1,9 @@
-use hashbrown::HashMap;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{marker::PhantomData, sync::Arc};
-use tokio::sync::RwLock;
 
-use super::super::{message, Announcer, Barista, Machine, Order, Orders, Ticket, Waiter};
+use super::super::{
+    message, Announcer, Barista, Machine, Order, OrderSegment, Orders, Ticket, Waiter,
+};
 use crate::{cli::Config, helpers, CoffeeShopError};
 
 /// The default prefix for dynamodb table.
@@ -64,7 +64,7 @@ where
 
     /// A map of tickets to their respective [`Notify`] events that are used to notify the
     /// waiter when a ticket is ready.
-    pub orders: RwLock<Orders>,
+    pub orders: Orders,
 
     /// The coffee machine that will process tickets.
     ///
@@ -136,7 +136,7 @@ where
         let baristas = config.baristas;
         let shop = Arc::new_cyclic(|me| Self {
             name,
-            orders: HashMap::new().into(),
+            orders: Orders::new(),
             coffee_machine,
             dynamodb_table,
             sqs_queue,
@@ -163,25 +163,33 @@ where
     // TODO - Move these to a separate module.
 
     /// Check if this shop has an order for a given ticket.
+    ///
+    /// # Note
+    ///
+    /// If you intend to use the order after this function, use [`Shop::get_order`] instead.
     pub async fn has_order(&self, ticket: &Ticket) -> bool {
-        self.orders.read().await.contains_key(ticket)
+        self.orders.contains_key(ticket).await
     }
 
     /// Get the order for a given ticket in the shop.
-    pub async fn get_order(&self, ticket: &Ticket) -> Option<Arc<Order>> {
-        self.orders.read().await.get(ticket).cloned()
+    pub async fn get_order(&self, ticket: &Ticket) -> Option<Arc<OrderSegment>> {
+        self.orders.get(ticket).await
     }
 
     /// Spawn a [`Order`] order for a given [`Ticket`] in the shop.
     ///
     /// Get the ticket if it exists, otherwise create a new one
     /// before returning the [`Arc`] reference to the [`Order`].
-    pub async fn spawn_order(&self, ticket: Ticket) -> Arc<Order> {
-        self.orders
-            .write()
-            .await
-            .entry(ticket.clone())
-            .or_insert_with_key(|_| Arc::new(Order::new(ticket)))
-            .clone()
+    pub async fn spawn_order(&self, ticket: Ticket) -> Arc<OrderSegment> {
+        match self.orders.insert(ticket.clone(), Order::new(ticket)).await {
+            Ok(segment) => segment,
+            Err(helpers::order_chain::AttachmentError::KeyAlreadyExists { existing, .. }) => {
+                existing
+            }
+            Err(err) => unreachable!(
+                "No other error should be possible from `ChainSegment::insert`: {:?}",
+                err
+            ),
+        }
     }
 }

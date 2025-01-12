@@ -24,7 +24,7 @@ use tower_http::{timeout::TimeoutLayer, trace::TraceLayer};
 
 use super::{
     message::{self, QueryType},
-    Machine, Order, Shop,
+    Machine, OrderSegment, Shop,
 };
 use crate::{errors::handling::IntoCoffeeShopError, helpers, CoffeeShopError};
 
@@ -83,7 +83,6 @@ where
             Json(message::StatusResponse {
                 metadata: message::ResponseMetadata::new(&self.start_time),
                 request_count: self.request_count.load(Ordering::Relaxed),
-                ticket_count: self.shop().orders.read().await.len(),
             }),
         )
     }
@@ -136,7 +135,7 @@ where
     pub async fn create_order(
         &self,
         input: message::CombinedInput<Q, I>,
-    ) -> Result<(message::Ticket, Arc<Order>), CoffeeShopError> {
+    ) -> Result<(message::Ticket, Arc<OrderSegment>), CoffeeShopError> {
         let shop = self.shop();
 
         // Validate the query prior to creating the ticket, to avoid unnecessary
@@ -163,11 +162,9 @@ where
 
         let order = shop
             .orders
-            .read()
-            .await
             .get(&ticket)
-            .ok_or_else(|| CoffeeShopError::TicketNotFound(ticket.clone()))
-            .map(Arc::clone);
+            .await
+            .ok_or_else(|| CoffeeShopError::TicketNotFound(ticket.clone()));
 
         if let Err(err) = order {
             return err.into_response();
@@ -183,6 +180,7 @@ where
 
         // Wait for the order to complete.
         order
+            .value()
             .wait_and_fetch_when_complete::<O, _>(shop.deref())
             .await
             .map(|result| {

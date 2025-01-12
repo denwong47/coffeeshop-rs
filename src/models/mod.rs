@@ -22,7 +22,7 @@ mod barista;
 pub use barista::Barista;
 
 mod order;
-pub use order::{Order, Orders};
+pub use order::{Order, OrderSegment, Orders};
 
 mod shop;
 pub use shop::*;

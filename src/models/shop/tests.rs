@@ -208,7 +208,7 @@ mod announcer {
                     crate::error!(target: LOG_TARGET, "Order for ticket {} timed out.", ticket);
                     Err(CoffeeShopError::RetrieveTimeout(start_time.elapsed()))
                 },
-                result = order.wait_until_complete() => {
+                result = order.value().wait_until_complete() => {
                     result
                 },
             };

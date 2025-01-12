@@ -176,6 +176,15 @@ where
         self.iter().await.find(|segment| segment.key() == key)
     }
 
+    /// Checks if the chain contains a key.
+    ///
+    /// # Cost
+    ///
+    /// This command is `O(n)` and should be used with care.
+    pub async fn contains_key(&self, key: &K) -> bool {
+        self.get(key).await.is_some()
+    }
+
     /// Inserts a new element into the chain.
     ///
     /// # Cost
@@ -185,7 +194,7 @@ where
         &self,
         key: K,
         value: V,
-    ) -> Result<(), AttachmentError<Arc<ChainSegment<K, V>>>> {
+    ) -> Result<Arc<ChainSegment<K, V>>, AttachmentError<Arc<ChainSegment<K, V>>>> {
         let segment = Arc::new((key, value).into());
         let head_opt = self.head().await;
 
@@ -209,9 +218,9 @@ where
             } else {
                 crate::debug!(target: LOG_TARGET, "Head is available for initiation after {:?}.", start_time.elapsed());
 
-                *head = Some(segment);
+                *head = Some(Arc::clone(&segment));
 
-                Ok(())
+                Ok(segment)
             }
         }
     }
