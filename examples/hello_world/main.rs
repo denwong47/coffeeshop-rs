@@ -14,7 +14,7 @@ type HelloShop =
     Shop<models::HelloQuery, models::HelloPayload, models::HelloResult, machine::HelloMachine>;
 
 /// The most basic form of a coffee shop, using the test models.
-#[tokio::main(flavor = "multi_thread")]
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<(), coffeeshop::CoffeeShopError> {
     let config = Config::parse();
 

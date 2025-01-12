@@ -6,6 +6,10 @@ use super::super::{
 };
 use crate::{cli::Config, helpers, CoffeeShopError};
 
+/// The logger target for the shop.
+#[cfg(feature = "debug")]
+const LOG_TARGET: &str = "coffeeshop::models::shop";
+
 /// The default prefix for dynamodb table.
 const DYNAMODB_TABLE_PREFIX: &str = "task-queue-";
 
@@ -115,6 +119,9 @@ where
         mut config: Config,
         aws_config: Option<helpers::aws::SdkConfig>,
     ) -> Result<Arc<Self>, CoffeeShopError> {
+        #[cfg(feature = "tokio_debug")]
+        console_subscriber::init();
+
         // If the table has not been set, use the default table name with the prefix.
         // Otherwise, remove the name from `config` and put it into the [`Shop`].
         let dynamodb_table = config
@@ -181,7 +188,18 @@ where
     /// Get the ticket if it exists, otherwise create a new one
     /// before returning the [`Arc`] reference to the [`Order`].
     pub async fn spawn_order(&self, ticket: Ticket) -> Arc<OrderSegment> {
-        match self.orders.insert(ticket.clone(), Order::new(ticket)).await {
+        #[cfg(feature = "debug")]
+        let start_time = tokio::time::Instant::now();
+
+        let result = self.orders.insert(ticket.clone(), Order::new(ticket)).await;
+
+        crate::debug!(
+            target: LOG_TARGET,
+            "Spawned order in {:?}.",
+            start_time.elapsed()
+        );
+
+        match result {
             Ok(segment) => segment,
             Err(helpers::order_chain::AttachmentError::KeyAlreadyExists { existing, .. }) => {
                 existing

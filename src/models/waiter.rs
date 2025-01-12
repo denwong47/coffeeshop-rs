@@ -233,7 +233,10 @@ where
         timeout: Option<tokio::time::Duration>,
     ) -> axum::response::Response {
         match self.create_order(input).await {
-            Ok((ticket, _order)) => self.retrieve_order_with_timeout(ticket, timeout).await,
+            Ok((ticket, _order)) => {
+                tokio::task::yield_now().await;
+                self.retrieve_order_with_timeout(ticket, timeout).await
+            }
             Err(err) => err.into_response(),
         }
     }
