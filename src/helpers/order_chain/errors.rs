@@ -6,8 +6,12 @@ use thiserror::Error;
 /// can be consumed to retry the operation.
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum AttachmentError<T> {
-    #[error("The segment with key {0:?} already exists in the chain.")]
-    KeyAlreadyExists(T),
+    #[error("The segment {candidate:?} already has a matching key in the chain.")]
+    KeyAlreadyExists {
+        /// The segment that already exists in the chain.
+        existing: T,
+        candidate: T,
+    },
 
     #[error("The current segment is not the tail of the chain.")]
     NotTail(T),
@@ -19,11 +23,12 @@ impl<T> AttachmentError<T> {
         macro_rules! into_inner {
             ($($variant:ident),+$(,)?) => {
                 match self {
+                    Self::KeyAlreadyExists { candidate, .. } => candidate,
                     $(Self::$variant(inner) => inner),+
                 }
             };
         }
 
-        into_inner!(KeyAlreadyExists, NotTail,)
+        into_inner!(NotTail,)
     }
 }

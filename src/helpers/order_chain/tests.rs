@@ -54,10 +54,11 @@ mod instantiation {
 
     #[tokio::test]
     async fn from_iter_duplicated_keys() {
+        let original_item = ("world".to_string(), MyValue { value: 43 });
         let dupe_item = ("world".to_string(), MyValue { value: 44 });
         let items = vec![
             ("hello".to_string(), MyValue { value: 42 }),
-            ("world".to_string(), MyValue { value: 43 }),
+            original_item.clone(),
             dupe_item.clone(),
         ];
         let result = Chain::from_iter(items.clone().into_iter()).await;
@@ -68,7 +69,10 @@ mod instantiation {
         );
         assert_eq!(
             result.unwrap_err(),
-            AttachmentError::KeyAlreadyExists(Arc::new(dupe_item.into()))
+            AttachmentError::KeyAlreadyExists {
+                existing: Arc::new(original_item.into()),
+                candidate: Arc::new(dupe_item.into())
+            }
         );
     }
 }

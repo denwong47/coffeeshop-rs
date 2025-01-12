@@ -68,11 +68,19 @@ where
     /// If it was able to attach the new segment, it will return [`Ok`].
     /// Otherwise, it will return the input segment unattached wrapped in the
     /// [`AttachmentError`] variant that corresponds to the error.
-    pub fn try_attach(&self, next: Arc<Self>) -> Result<(), AttachmentError<Arc<Self>>> {
+    pub fn try_attach(
+        self: &Arc<Self>,
+        next: Arc<Self>,
+    ) -> Result<Arc<Self>, AttachmentError<Arc<Self>>> {
         if self.key == next.key {
-            Err(AttachmentError::KeyAlreadyExists(next))
+            Err(AttachmentError::KeyAlreadyExists {
+                existing: Arc::clone(self),
+                candidate: next,
+            })
         } else {
-            self.next.set(next).map_err(AttachmentError::NotTail)
+            self.next.set(next).map_err(AttachmentError::NotTail)?;
+
+            Ok(Arc::clone(self.next().unwrap()))
         }
     }
 
@@ -94,7 +102,10 @@ where
     /// # Cost
     ///
     /// This is an `O(n)` operation.
-    pub fn attach(self: &Arc<Self>, next: Arc<Self>) -> Result<(), AttachmentError<Arc<Self>>> {
+    pub fn attach(
+        self: &Arc<Self>,
+        next: Arc<Self>,
+    ) -> Result<Arc<Self>, AttachmentError<Arc<Self>>> {
         let mut tail = Arc::clone(self);
         let mut result = tail.try_attach(next);
 

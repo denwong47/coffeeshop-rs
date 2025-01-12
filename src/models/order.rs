@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use hashbrown::HashMap;
 use serde::de::DeserializeOwned;
 
 use crate::{helpers, models::Ticket, CoffeeShopError};
@@ -14,7 +13,10 @@ use super::message::ProcessResultExport;
 const LOG_TARGET: &str = "coffeeshop::models::order";
 
 /// A collection of [`Order`]s that are being processed.
-pub type Orders = HashMap<String, Arc<Order>>;
+pub type Orders = helpers::order_chain::Chain<Ticket, Order>;
+
+/// A segment of the [`Orders`] chain.
+pub type OrderSegment = helpers::order_chain::ChainSegment<Ticket, Order>;
 
 /// A [`Delivery`] is a structure that contains:
 /// - [`OnceLock`](std::sync::OnceLock) which will be populated with the processed ticket

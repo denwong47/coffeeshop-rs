@@ -3,12 +3,12 @@
 
 use crate::{
     helpers::dynamodb::{self, HasDynamoDBConfiguration},
-    models::{message, Machine, Orders, Shop},
+    models::{message, Machine, Orders, Shop, Ticket},
     CoffeeShopError,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
-use tokio::sync::{Notify, RwLock};
+use tokio::sync::Notify;
 
 #[cfg(doc)]
 use crate::models::{Barista, Order, Waiter};
@@ -22,25 +22,18 @@ const LOG_TARGET: &str = "coffeeshop::models::collection_point";
 #[async_trait::async_trait]
 pub trait CollectionPoint: HasDynamoDBConfiguration {
     /// Access the orders relevant to the collection point.
-    fn orders(&self) -> &RwLock<Orders>;
+    fn orders(&self) -> &Orders;
 
     /// Purge stale orders from the collection point.
     ///
     /// Currently, this function never fails; the error type is reserved for future use.
+    #[allow(unused_variables)]
     async fn purge_stale_orders(
         &self,
+        // This needs to be implemented in the future at `Chain::advance` level.
         max_age: tokio::time::Duration,
     ) -> Result<(), CoffeeShopError> {
-        let mut orders = self.orders().write().await;
-
-        let removed = orders.extract_if(|_k, v| v.is_stale(max_age));
-
-        crate::info!(
-            target: LOG_TARGET,
-            "Purged {} stale orders from the collection point.",
-            removed.count()
-        );
-
+        self.orders().advance().await;
         Ok(())
     }
 
@@ -74,7 +67,7 @@ where
     F: Machine<Q, I, O>,
 {
     /// Access the orders in the [`Shop`] instance.
-    fn orders(&self) -> &RwLock<Orders> {
+    fn orders(&self) -> &Orders {
         &self.orders
     }
 }
@@ -94,28 +87,31 @@ where
     ///
     /// Internal function: this function is not meant to be called directly.
     pub async fn check_for_fulfilled_orders(&self) -> Result<(), CoffeeShopError> {
-        let found_results = async {
-            let orders = self.orders().read().await;
+        let found_results: hashbrown::HashMap<Ticket, bool> = hashbrown::HashMap::from_iter(
+            async {
+                let orders = self.orders().iter().await;
 
-            let unfulfilled_tickets = orders
-                .iter()
-                .filter_map(|(k, v)| (!v.is_fulfilled()).then_some(k))
-                // This clone is a necessary evil in order to drop the read lock;
-                // if we hold references to the orders while we await the results,
-                // the orders will be locked for the duration of an IO.
-                .cloned()
-                .collect::<Vec<_>>();
+                let unfulfilled_tickets = orders
+                    .filter_map(|segment| {
+                        // If the order is not fulfilled, we will gather the ticket id.
+                        (!segment.value().is_fulfilled()).then_some(segment.key().clone())
+                    })
+                    // This clone is a necessary evil in order to drop the read lock;
+                    // if we hold references to the orders while we await the results,
+                    // the orders will be locked for the duration of an IO.
+                    .collect::<Vec<_>>();
 
-            drop(orders);
+                dynamodb::get_process_successes_by_tickets::<_>(self, unfulfilled_tickets.iter())
+                    .await
+            }
+            .await?
+            .into_iter(),
+        );
 
-            dynamodb::get_process_successes_by_tickets::<_>(self, unfulfilled_tickets.iter()).await
-        }
-        .await?;
-
-        let orders = self.orders().read().await;
-        for (ticket, result) in found_results {
-            if let Some(order) = orders.get(&ticket) {
-                order.complete(result)?;
+        for segment in self.orders().iter().await {
+            let result = found_results.get(segment.key());
+            if let Some(result) = result {
+                segment.value().complete(*result)?;
             }
         }
 

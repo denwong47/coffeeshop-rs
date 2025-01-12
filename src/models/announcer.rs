@@ -252,6 +252,7 @@ where
 
                 if let Some(order) = shop.get_order(&message.ticket).await {
                     order
+                        .value()
                         .complete(status == message::MulticastMessageStatus::Complete)
                         .inspect_err(|err| {
                             crate::error!(
