@@ -167,4 +167,4 @@ async def main(sync_count: int, async_count: int):
     return good_results, bad_results
 
 if __name__ == "__main__":
-    asyncio.run(main(200, 200))
+    asyncio.run(main(50, 50))
