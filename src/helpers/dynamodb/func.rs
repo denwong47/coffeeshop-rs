@@ -218,14 +218,25 @@ where
     O: DeserializeOwned + Send + Sync + 'static,
     C: HasDynamoDBConfiguration,
 {
-    get_items_by_tickets(config, tickets, None)
-        .await
-        .and_then(|items| {
-            items
-                .into_iter()
-                .map(|item| item.to_process_result(config.dynamodb_partition_key()))
-                .collect::<Result<Vec<_>, _>>()
-        })
+    // TODO Refactor this to use `tokio::task::spawn_blocking` to avoid blocking the runtime.
+    let items = get_items_by_tickets(config, tickets, None).await?;
+
+    let dynamodb_partition_key = config.dynamodb_partition_key().to_owned();
+    let handle = tokio::task::spawn_blocking(move || {
+        items
+            .into_iter()
+            .map(|item| item.to_process_result(&dynamodb_partition_key))
+            .collect::<Result<Vec<_>, _>>()
+    });
+
+    handle.await.unwrap_or_else(|err| {
+        crate::error!(
+            "The thread to convert the DynamoDB items into processing results panicked. Error: {:?}",
+            err
+        );
+
+        Err(CoffeeShopError::ThreadResourceError(err.to_string()))
+    })
 }
 /// Get the statuses that matches any given partition keys from a DynamoDB table.
 pub async fn get_process_successes_by_tickets<C>(
