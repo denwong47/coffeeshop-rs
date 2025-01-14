@@ -117,7 +117,7 @@ pub async fn receive_multicast(
     let result = asocket
         .read(|socket| socket.recv_from(&mut inner_buffer))
         .await;
-    crate::debug!(target: LOG_TARGET, "Received message.");
+    crate::trace!(target: LOG_TARGET, "Received message.");
 
     result
         .map(|(size, addr)| {
