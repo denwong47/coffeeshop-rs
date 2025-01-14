@@ -1,7 +1,10 @@
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     ops::Deref,
-    sync::{atomic::AtomicUsize, Arc, Weak},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, Weak,
+    },
 };
 use tokio::sync::Notify;
 
@@ -78,95 +81,77 @@ where
     ///
     /// This function never returns, and will loop indefinitely until the
     /// program is terminated.
-    pub async fn serve(&self, shutdown_signal: Arc<Notify>) -> Result<(), CoffeeShopError> {
-        let task = async {
-            loop {
-                crate::trace!(
-                    target: LOG_TARGET,
-                    "A Barista is waiting for the next ticket...",
-                );
-                let result = self.process_next_ticket(Some(BARISTA_REPORT_IDLE)).await;
-
-                // Inspect the result and decide what to do.
-                match &result {
-                    Ok(_) => (),
-                    // Expected errors.
-                    Err(crate::CoffeeShopError::AWSSQSQueueEmpty(duration)) => crate::trace!(
-                        target: LOG_TARGET,
-                        "No tickets in the queue after {duration:?}; trying again.",
-                        duration = duration,
-                    ),
-                    // Irrecoverable errors.
-                    Err(crate::CoffeeShopError::AWSQueueDoesNotExist(queue_url)) => {
-                        crate::error!(
-                            target: LOG_TARGET,
-                            "The SQS queue {queue:?} does not exist; terminating barista.",
-                            queue = queue_url,
-                        );
-
-                        break result;
-                    }
-                    Err(crate::CoffeeShopError::AWSDynamoDBTableDoesNotExist(table_name)) => {
-                        crate::error!(
-                            target: LOG_TARGET,
-                            "The DynamoDB table {table:?} does not exist; terminating barista.",
-                            table = table_name,
-                        );
-
-                        break result;
-                    }
-                    Err(crate::CoffeeShopError::InvalidConfiguration { field, message }) => {
-                        crate::error!(
-                            target: LOG_TARGET,
-                            "Invalid configuration for the barista: {field}: {message}",
-                            field = field,
-                            message = message,
-                        );
-
-                        break result;
-                    }
-                    Err(crate::CoffeeShopError::AWSCredentialsError(err)) => {
-                        crate::error!(
-                            target: LOG_TARGET,
-                            "AWS credentials rejected: {error}",
-                            error = err,
-                        );
-
-                        break result;
-                    }
-                    // Catch all.
-                    Err(err) => crate::error!(
-                        target: LOG_TARGET,
-                        "Error processing ticket: {error}",
-                        error = err,
-                    ),
-                }
-            }
-        };
-
-        tokio::select! {
-            _ = shutdown_signal.notified() => {
+    pub async fn serve(&self, is_shutdown_requested: &AtomicBool) -> Result<(), CoffeeShopError> {
+        loop {
+            if is_shutdown_requested.load(Ordering::Relaxed) {
                 crate::warn!(
                     target: LOG_TARGET,
                     "Received shutdown signal, terminating barista."
                 );
 
-                Ok(())
-            },
-            result = task => {
-                if result.is_err() {
-                    crate::warn!(
+                break Ok(());
+            }
+
+            crate::trace!(
+                target: LOG_TARGET,
+                "A Barista is waiting for the next ticket...",
+            );
+            let result = self.process_next_ticket(Some(BARISTA_REPORT_IDLE)).await;
+
+            // Inspect the result and decide what to do.
+            match &result {
+                Ok(_) => (),
+                // Expected errors.
+                Err(crate::CoffeeShopError::AWSSQSQueueEmpty(duration)) => crate::trace!(
+                    target: LOG_TARGET,
+                    "No tickets in the queue after {duration:?}; trying again.",
+                    duration = duration,
+                ),
+                // Irrecoverable errors.
+                Err(crate::CoffeeShopError::AWSQueueDoesNotExist(queue_url)) => {
+                    crate::error!(
                         target: LOG_TARGET,
-                        "Barista task has unexpectedly terminated, shop could not remain open.",
+                        "The SQS queue {queue:?} does not exist; terminating barista.",
+                        queue = queue_url,
                     );
-                } else {
-                    crate::warn!(
-                        target: LOG_TARGET,
-                        "Barista task has completed; this should be unreachable."
-                    );
+
+                    break result;
                 }
-                result
-            },
+                Err(crate::CoffeeShopError::AWSDynamoDBTableDoesNotExist(table_name)) => {
+                    crate::error!(
+                        target: LOG_TARGET,
+                        "The DynamoDB table {table:?} does not exist; terminating barista.",
+                        table = table_name,
+                    );
+
+                    break result;
+                }
+                Err(crate::CoffeeShopError::InvalidConfiguration { field, message }) => {
+                    crate::error!(
+                        target: LOG_TARGET,
+                        "Invalid configuration for the barista: {field}: {message}",
+                        field = field,
+                        message = message,
+                    );
+
+                    break result;
+                }
+                Err(crate::CoffeeShopError::AWSCredentialsError(err)) => {
+                    crate::error!(
+                        target: LOG_TARGET,
+                        "AWS credentials rejected: {error}",
+                        error = err,
+                    );
+
+                    break result;
+                }
+                // Catch all.
+                Err(err) => crate::error!(
+                    target: LOG_TARGET,
+                    "Error processing ticket: {error}",
+                    error = err,
+                ),
+            }
         }
     }
 
@@ -175,11 +160,24 @@ where
         baristas: &[Self],
         shutdown_signal: Arc<Notify>,
     ) -> Result<(), CoffeeShopError> {
+        let is_shutdown_requested = AtomicBool::new(false);
+
+        let shutdown_signal_task = async {
+            shutdown_signal.notified().await;
+            crate::warn!(
+                target: LOG_TARGET,
+                "Received shutdown signal, flagging all baristas to terminate after current workload."
+            );
+            is_shutdown_requested.store(true, Ordering::Relaxed);
+
+            Ok(())
+        };
+
         let tasks = baristas
             .iter()
-            .map(|barista| barista.serve(shutdown_signal.clone()));
+            .map(|barista| barista.serve(&is_shutdown_requested));
 
-        futures::future::try_join_all(tasks).await.map(|_| ())
+        tokio::try_join!(shutdown_signal_task, futures::future::try_join_all(tasks),).map(|_| ())
     }
 
     /// Process a ticket from the SQS queue.
@@ -215,11 +213,11 @@ where
             let process_result = self.process_ticket(&receipt).await;
             let status = if process_result.is_ok() {
                 // If the processing is successful, mark the ticket as complete.
-                MulticastMessageStatus::Complete
+                MulticastMessageStatus::Success
             } else {
                 // If the machine failed to process it, there is not point retrying,
                 // so mark it as rejected; which is different from failure.
-                MulticastMessageStatus::Rejected
+                MulticastMessageStatus::Aborted
             };
 
             // Send the result to DynamoDB.
@@ -240,7 +238,7 @@ where
         let status = if let Ok(status) = result {
             status
         } else {
-            MulticastMessageStatus::Failure
+            MulticastMessageStatus::Error
         };
 
         // TODO Send the multicast message to all the waiters.

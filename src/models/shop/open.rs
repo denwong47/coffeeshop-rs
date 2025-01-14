@@ -85,10 +85,26 @@ where
             },
             // Announcer.
             async {
-                self.announcer.listen_for_announcements(shutdown_signal.clone()).await
-                .inspect_err(
-                    |err| crate::error!(target: LOG_TARGET, "The announcer has stopped listening for announcements. Error: {:?}", err)
-                )
+                // Announce the shop is now opening.
+                // Since the announcer already bound its sockets, it will in fact hear this announcement.
+                self.announcer.announce_status(message::MulticastMessageStatus::Success).await?;
+                let result = self.announcer.listen_for_announcements(shutdown_signal.clone()).await
+                    .inspect_err(
+                        |err| crate::error!(target: LOG_TARGET, "The announcer has stopped listening for announcements. Error: {:?}", err)
+                    );
+
+                // Announce the shop is now closing.
+                self.announcer.announce_status(
+                    {
+                        if result.is_ok() {
+                            message::MulticastMessageStatus::Aborted
+                        } else {
+                            message::MulticastMessageStatus::Error
+                        }
+                    }
+                ).await?;
+
+                result
             },
             // Shop periodic checking of DynamoDB as a final line of defence.
             async {
