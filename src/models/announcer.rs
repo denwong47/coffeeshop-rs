@@ -262,6 +262,16 @@ where
             message = &message
         );
 
+        // If the message is not for this shop, then ignore it.
+        if message.task != self.shop().name {
+            crate::info!(
+                target: LOG_TARGET,
+                "Received multicast message for irrelevant task {task:?}, ignoring.",
+                task = &message.task
+            );
+            return Ok(());
+        }
+
         match (message.kind(), message.status()) {
             // If the message is a ticket that has been completed or rejected, then
             // the processing is finished and we can log it into the shop.
