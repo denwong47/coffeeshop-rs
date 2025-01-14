@@ -188,7 +188,7 @@ mod announcer {
                     &shop.name,
                     &ticket,
                     MulticastMessageKind::Ticket,
-                    MulticastMessageStatus::Complete,
+                    MulticastMessageStatus::Success,
                 ))
                 .await
         };

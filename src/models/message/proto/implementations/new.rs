@@ -20,24 +20,24 @@ impl MulticastMessage {
     }
 
     /// Creates a new `MulticastMessage` with the given `id` and `kind` set to `Ticket`,
-    /// and `status` set to `Complete`.
+    /// and `status` set to `Success`.
     pub fn new_ticket_complete(task: &str, ticket: &Ticket) -> Self {
         Self::new(
             task,
             ticket,
             MulticastMessageKind::Ticket,
-            MulticastMessageStatus::Complete,
+            MulticastMessageStatus::Success,
         )
     }
 
     /// Creates a new `MulticastMessage` with the given `id` and `kind` set to `Ticket`,
-    /// and `status` set to `Rejected`.
+    /// and `status` set to `Aborted`.
     pub fn new_ticket_rejected(task: &str, ticket: &Ticket) -> Self {
         Self::new(
             task,
             ticket,
             MulticastMessageKind::Ticket,
-            MulticastMessageStatus::Rejected,
+            MulticastMessageStatus::Aborted,
         )
     }
 }
@@ -59,7 +59,7 @@ mod tests {
         );
         assert_eq!(
             MulticastMessageStatus::try_from(message.status).unwrap(),
-            MulticastMessageStatus::Complete
+            MulticastMessageStatus::Success
         );
     }
 
@@ -76,7 +76,7 @@ mod tests {
         );
         assert_eq!(
             MulticastMessageStatus::try_from(message.status).unwrap(),
-            MulticastMessageStatus::Rejected
+            MulticastMessageStatus::Aborted
         );
     }
 }

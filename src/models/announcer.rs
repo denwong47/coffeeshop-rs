@@ -205,6 +205,23 @@ where
             })
     }
 
+    /// Announce the status of the associated shop to the multicast group.
+    pub async fn announce_status(
+        &self,
+        status: message::MulticastMessageStatus,
+    ) -> Result<usize, CoffeeShopError> {
+        let shop = self.shop();
+
+        self.send_message(message::MulticastMessage::new(
+            &shop.name,
+            // This ticket is meaningless for an announcement.
+            &uuid::Uuid::new_v4().to_string(),
+            message::MulticastMessageKind::Announce,
+            status,
+        ))
+        .await
+    }
+
     /// Static method to transform a received message into a [`MulticastMessage`].
     fn transform_message(
         &self,
@@ -236,9 +253,10 @@ where
         data: Vec<u8>,
         addr: SockAddr,
     ) -> Result<(), CoffeeShopError> {
+        let addr_description = multicast::socket::describe_sock_addr(&addr);
         let message = self.transform_message(data, addr)?;
 
-        crate::info!(
+        crate::trace!(
             target: LOG_TARGET,
             "Received multicast message: {message:?}",
             message = &message
@@ -253,7 +271,7 @@ where
                 if let Some(order) = shop.get_order(&message.ticket).await {
                     order
                         .value()
-                        .complete(status == message::MulticastMessageStatus::Complete)
+                        .complete(status == message::MulticastMessageStatus::Success)
                         .inspect_err(|err| {
                             crate::error!(
                                 target: LOG_TARGET,
@@ -269,6 +287,35 @@ where
                         ticket = &message.ticket
                     )
                 }
+            }
+            (message::MulticastMessageKind::Announce, status) => {
+                match status {
+                    message::MulticastMessageStatus::Success => {
+                        crate::info!(
+                            target: LOG_TARGET,
+                            "{addr_description} announces that it has completed initialization.",
+                        )
+                    }
+                    // The following statuses are currently unused - they will never
+                    // be received.
+                    message::MulticastMessageStatus::Error => {
+                        crate::info!(
+                            target: LOG_TARGET,
+                            "{addr_description} announces that it has failed and is terminated.",
+                        )
+                    }
+                    message::MulticastMessageStatus::Aborted => {
+                        crate::info!(
+                            target: LOG_TARGET,
+                            "{addr_description} announces that it has started gracefully shutting down.",
+                        )
+                    }
+                }
+                crate::info!(
+                    target: LOG_TARGET,
+                    "Received announcement message with status {status:?}.",
+                    status = status
+                );
             }
             (kind, status) => {
                 crate::info!(
@@ -287,8 +334,6 @@ where
         shutdown_signal: Arc<Notify>,
     ) -> Result<(), CoffeeShopError> {
         let mut message_count: u64 = 0;
-
-        // TODO Every once in a while, we should check with DynamoDB regardless of the multicast messages.
 
         // This is the main task that listens for multicast messages, to be raced against the shutdown signal.
         let task = async {
