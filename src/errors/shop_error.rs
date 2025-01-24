@@ -24,8 +24,8 @@ mod sqs {
 }
 /// For the error handling of DynamoDB SDK.
 mod dynamodb {
-    pub use aws_sdk_dynamodb::operation::put_item::PutItemError;
     pub use aws_sdk_dynamodb::types::error::*;
+    pub use aws_sdk_dynamodb::Error;
 }
 
 #[derive(Error, Debug, strum::IntoStaticStr)]
@@ -120,14 +120,29 @@ pub enum CoffeeShopError {
     #[error("AWS Configuration incomplete: {0}")]
     AWSConfigIncomplete(String),
 
+    /// Generic DynamoDB Error that we fallback to, if we don't know the specific error.
+    ///
+    /// [`dynamodb::Error`] is non-exhaustive, so we need to handle the unknown errors.
+    #[error("An error occurred while processing the request: {0}")]
+    AWSDynamoDBResponseError(#[from] dynamodb::Error),
+
     #[error("The specified AWS DynamoDB Table does not exists. Please verify the table: {0}")]
     AWSDynamoDBTableDoesNotExist(String),
 
     #[error("DynamoDB item is found malformed: {0}")]
     AWSDynamoDBMalformedItem(String),
 
+    #[error("DynamoDB item operation could not be performed due to {kind}: {message}")]
+    AWSDynamoDBItemOperationError { kind: String, message: String },
+
+    #[error("DynamoDB item already exists: {0}")]
+    AWSDynamoDBDuplicateItem(String),
+
     #[error("AWS DynamoDB Provisioned Throughput Exceeded.")]
     AWSDynamoDBRateLimitExceeded,
+
+    #[error("The AWS DynamoDB table has exceeded the item collection size limit.")]
+    AWSDynamoDBCollectionOversize,
 
     #[error("The specified AWS SQS queue URL does not exists. Please verify the URL: {0}")]
     AWSQueueDoesNotExist(String),
@@ -180,22 +195,22 @@ impl CoffeeShopError {
     /// Convenient method to create a [`CoffeeShopError::IOError`] variant from [`std::io::Error`].
     pub fn from_io_error(error: std::io::Error) -> Self {
         if error.kind() == std::io::ErrorKind::AlreadyExists {
-            CoffeeShopError::NonUniqueTemporaryFile
+            Self::NonUniqueTemporaryFile
         } else {
-            CoffeeShopError::IOError(error.kind(), error)
+            Self::IOError(error.kind(), error)
         }
     }
 
     /// Convenient method to create a [`CoffeeShopError::MulticastIOError`] variant from [`std::io::Error`].
     pub fn from_multicast_io_error(error: std::io::Error) -> Self {
         // We don't need to care about unique temporary files here.
-        CoffeeShopError::MulticastIOError(error.kind(), error)
+        Self::MulticastIOError(error.kind(), error)
     }
 
     /// Convenient method to create a [`CoffeeShopError::HTTPServerError`] variant from [`std::io::Error`].
     pub fn from_server_io_error(error: std::io::Error) -> Self {
         // We don't need to care about unique temporary files here.
-        CoffeeShopError::HTTPServerError(error.kind(), error)
+        Self::HTTPServerError(error.kind(), error)
     }
 
     /// Convenient method to map AWS SQS SDK errors from receiving messages to
@@ -206,22 +221,22 @@ impl CoffeeShopError {
     ) -> Self {
         match error {
             sqs::ReceiveMessageError::QueueDoesNotExist(sqs::QueueDoesNotExist { .. }) => {
-                CoffeeShopError::AWSQueueDoesNotExist(config.sqs_queue_url().to_owned())
+                Self::AWSQueueDoesNotExist(config.sqs_queue_url().to_owned())
             }
             sqs::ReceiveMessageError::InvalidAddress(sqs::InvalidAddress {
                 message: msg_opt,
                 ..
-            }) => CoffeeShopError::InvalidConfiguration {
+            }) => Self::InvalidConfiguration {
                 field: "sqs_queue",
                 message: msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
             },
             sqs::ReceiveMessageError::KmsAccessDenied(sqs::KmsAccessDenied {
                 message: msg_opt,
                 ..
-            }) => CoffeeShopError::AWSCredentialsError(
+            }) => Self::AWSCredentialsError(
                 msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
             ),
-            err => CoffeeShopError::AWSSQSReceiveMessageError(Box::new(err)),
+            err => Self::AWSSQSReceiveMessageError(Box::new(err)),
         }
     }
 
@@ -232,57 +247,114 @@ impl CoffeeShopError {
     ) -> Self {
         match error {
             sqs::SendMessageError::QueueDoesNotExist(sqs::QueueDoesNotExist { .. }) => {
-                CoffeeShopError::AWSQueueDoesNotExist(config.sqs_queue_url().to_owned())
+                Self::AWSQueueDoesNotExist(config.sqs_queue_url().to_owned())
             }
             sqs::SendMessageError::InvalidMessageContents(sqs::InvalidMessageContents {
                 message: msg_opt,
                 ..
-            }) => CoffeeShopError::AWSSQSInvalidMessage(
+            }) => Self::AWSSQSInvalidMessage(
                 msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
             ),
             sqs::SendMessageError::InvalidAddress(sqs::InvalidAddress {
                 message: msg_opt, ..
-            }) => CoffeeShopError::InvalidConfiguration {
+            }) => Self::InvalidConfiguration {
                 field: "sqs_queue",
                 message: msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
             },
             sqs::SendMessageError::KmsAccessDenied(sqs::KmsAccessDenied {
                 message: msg_opt,
                 ..
-            }) => CoffeeShopError::AWSCredentialsError(
+            }) => Self::AWSCredentialsError(
                 msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
             ),
-            err => CoffeeShopError::AWSSQSSendMessageError(Box::new(err)),
+            err => Self::AWSSQSSendMessageError(Box::new(err)),
         }
     }
 
-    /// Convenient method to map AWS DynamoDB SDK errors to [`CoffeeShopError`].
-    pub fn from_aws_dynamodb_put_item_error(
-        error: dynamodb::PutItemError,
+    /// Convenient method to map AWS [`dynamodb::Error`] to [`CoffeeShopError`].
+    pub fn from_aws_dynamodb_error(
+        error: dynamodb::Error,
         config: &dyn HasDynamoDBConfiguration,
     ) -> Self {
         match error {
-            dynamodb::PutItemError::ResourceNotFoundException(_) => {
-                CoffeeShopError::AWSDynamoDBTableDoesNotExist(config.dynamodb_table().to_owned())
-            }
-            dynamodb::PutItemError::InvalidEndpointException(_) => {
-                CoffeeShopError::InvalidConfiguration {
-                    field: "dynamodb_table",
-                    message: format!(
-                        "Invalid endpoint for DynamoDB; please verify the table: {}",
-                        config.dynamodb_table()
-                    ),
-                }
-            }
-            dynamodb::PutItemError::ProvisionedThroughputExceededException(_) => {
-                CoffeeShopError::AWSDynamoDBRateLimitExceeded
-            }
-            dynamodb::PutItemError::ConditionalCheckFailedException(
+            dynamodb::Error::ConditionalCheckFailedException(
                 dynamodb::ConditionalCheckFailedException { message, item, .. },
-            ) => CoffeeShopError::AWSDynamoDBMalformedItem(format!(
+            ) => Self::AWSDynamoDBMalformedItem(format!(
                 "Conditional check failed for {item:?}: {message:#?}"
             )),
-            err => CoffeeShopError::AWSSdkError(format!("{:?}", err)),
+            dynamodb::Error::DuplicateItemException(dynamodb::DuplicateItemException {
+                message,
+                ..
+            }) => Self::AWSDynamoDBDuplicateItem(
+                message.unwrap_or("(no details provided)".to_owned()),
+            ),
+            dynamodb::Error::GlobalTableNotFoundException(_) => {
+                Self::AWSDynamoDBTableDoesNotExist(config.dynamodb_table().to_owned())
+            }
+            dynamodb::Error::IndexNotFoundException(_) => Self::InvalidConfiguration {
+                field: "dynamodb_partition_key",
+                message: format!(
+                    "`{}` is not a valid index on the DynamoDB Table of {}.",
+                    config.dynamodb_partition_key(),
+                    config.dynamodb_table()
+                ),
+            },
+            dynamodb::Error::InvalidEndpointException(_) => Self::InvalidConfiguration {
+                field: "dynamodb_table",
+                message: format!(
+                    "Invalid endpoint for DynamoDB; please verify the table: {}",
+                    config.dynamodb_table()
+                ),
+            },
+            dynamodb::Error::ItemCollectionSizeLimitExceededException(_) => {
+                crate::error!(
+                    "The item collection size limit has been exceeded for the table: {}",
+                    config.dynamodb_table()
+                );
+                Self::AWSDynamoDBCollectionOversize
+            }
+            dynamodb::Error::LimitExceededException(dynamodb::LimitExceededException {
+                message,
+                ..
+            }) => {
+                crate::error!(
+                    "An AWS DynamoDB rate limit has been exceeded for the table {}: {}",
+                    config.dynamodb_table(),
+                    message.unwrap_or("(no details provided)".to_owned())
+                );
+                Self::AWSDynamoDBRateLimitExceeded
+            }
+            dynamodb::Error::TableNotFoundException(_) => {
+                Self::AWSDynamoDBTableDoesNotExist(config.dynamodb_table().to_owned())
+            }
+            dynamodb::Error::ProvisionedThroughputExceededException(_) => {
+                Self::AWSDynamoDBRateLimitExceeded
+            }
+            dynamodb::Error::RequestLimitExceeded(_) => {
+                crate::error!(
+                    "Throughput limit for te AWS account has been exceeded for the table: {}",
+                    config.dynamodb_table()
+                );
+                Self::AWSDynamoDBRateLimitExceeded
+            }
+            dynamodb::Error::ResourceNotFoundException(_) => {
+                Self::AWSDynamoDBTableDoesNotExist(config.dynamodb_table().to_owned())
+            }
+            dynamodb::Error::TransactionCanceledException(
+                dynamodb::TransactionCanceledException {
+                    message,
+                    cancellation_reasons,
+                    ..
+                },
+            ) => Self::AWSDynamoDBItemOperationError {
+                kind: "TransactionCanceledException".to_string(),
+                message: format!(
+                    "Transaction canceled for the table {}:\nCancellation reasons: {cancellation_reasons:?}\nMessage: {message:#?}",
+                    config.dynamodb_table(),
+                ),
+            },
+            // Fallback to the generic error.
+            err => Self::AWSDynamoDBResponseError(err),
         }
     }
 
@@ -294,22 +366,22 @@ impl CoffeeShopError {
     /// If not found, it will return a [`http::StatusCode::INTERNAL_SERVER_ERROR`].
     pub fn status_code(&self) -> http::StatusCode {
         match self {
-            CoffeeShopError::AWSConfigIncomplete(_) => http::StatusCode::UNAUTHORIZED,
-            CoffeeShopError::AWSQueueDoesNotExist(_) => http::StatusCode::BAD_GATEWAY,
-            CoffeeShopError::InvalidConfiguration { .. } => http::StatusCode::INTERNAL_SERVER_ERROR,
-            CoffeeShopError::InvalidHeader { .. } => http::StatusCode::NOT_ACCEPTABLE,
-            CoffeeShopError::InvalidMethod => http::StatusCode::METHOD_NOT_ALLOWED,
-            CoffeeShopError::InvalidMulticastAddress(_) => http::StatusCode::BAD_REQUEST,
-            CoffeeShopError::InvalidMulticastMessage { .. } => http::StatusCode::BAD_REQUEST,
-            CoffeeShopError::InvalidRoute(_) => http::StatusCode::NOT_FOUND,
-            CoffeeShopError::InvalidQueryOptions(_) => http::StatusCode::BAD_REQUEST,
-            CoffeeShopError::InvalidPayload { .. } => http::StatusCode::UNPROCESSABLE_ENTITY,
-            CoffeeShopError::MalformedJsonPayload(_) => http::StatusCode::BAD_REQUEST,
-            CoffeeShopError::RetrieveTimeout(_) => http::StatusCode::REQUEST_TIMEOUT,
-            CoffeeShopError::Base64EncodingOversize(_) => http::StatusCode::PAYLOAD_TOO_LARGE,
-            CoffeeShopError::ProcessingError(ErrorSchema { status_code, .. }) => *status_code,
-            CoffeeShopError::ErrorSchema(ErrorSchema { status_code, .. }) => *status_code,
-            CoffeeShopError::AWSDynamoDBMalformedItem(_) => http::StatusCode::BAD_GATEWAY,
+            Self::AWSConfigIncomplete(_) => http::StatusCode::UNAUTHORIZED,
+            Self::AWSQueueDoesNotExist(_) => http::StatusCode::BAD_GATEWAY,
+            Self::InvalidConfiguration { .. } => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Self::InvalidHeader { .. } => http::StatusCode::NOT_ACCEPTABLE,
+            Self::InvalidMethod => http::StatusCode::METHOD_NOT_ALLOWED,
+            Self::InvalidMulticastAddress(_) => http::StatusCode::BAD_REQUEST,
+            Self::InvalidMulticastMessage { .. } => http::StatusCode::BAD_REQUEST,
+            Self::InvalidRoute(_) => http::StatusCode::NOT_FOUND,
+            Self::InvalidQueryOptions(_) => http::StatusCode::BAD_REQUEST,
+            Self::InvalidPayload { .. } => http::StatusCode::UNPROCESSABLE_ENTITY,
+            Self::MalformedJsonPayload(_) => http::StatusCode::BAD_REQUEST,
+            Self::RetrieveTimeout(_) => http::StatusCode::REQUEST_TIMEOUT,
+            Self::Base64EncodingOversize(_) => http::StatusCode::PAYLOAD_TOO_LARGE,
+            Self::ProcessingError(ErrorSchema { status_code, .. }) => *status_code,
+            Self::ErrorSchema(ErrorSchema { status_code, .. }) => *status_code,
+            Self::AWSDynamoDBMalformedItem(_) => http::StatusCode::BAD_GATEWAY,
             _ => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -354,7 +426,7 @@ impl CoffeeShopError {
     /// Converts a [`BoxError`] into a [`CoffeeShopError`], which will always return
     /// a JSON response.
     pub fn from_axum_box_error(error: BoxError) -> Self {
-        CoffeeShopError::ErrorSchema(ErrorSchema::new(
+        Self::ErrorSchema(ErrorSchema::new(
             http::StatusCode::INTERNAL_SERVER_ERROR,
             "BoxError".to_string(),
             Some(serde_json::json!({

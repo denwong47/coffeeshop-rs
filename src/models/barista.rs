@@ -241,7 +241,6 @@ where
             MulticastMessageStatus::Error
         };
 
-        // TODO Send the multicast message to all the waiters.
         self.shop().announcer.send_message(
             MulticastMessage::new(
                 &self.shop().name,

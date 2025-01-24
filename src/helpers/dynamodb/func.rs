@@ -39,7 +39,7 @@ where
                 sdk_err
             );
 
-            CoffeeShopError::from_aws_dynamodb_put_item_error(sdk_err.into_service_error(), config)
+            CoffeeShopError::from_aws_dynamodb_error(sdk_err.into_service_error().into(), config)
         })
         .map(
             |response| {
@@ -105,15 +105,13 @@ where
                         err
                     );
 
-                    // TODO - Implement a more specific error type for DynamoDB errors.
-                    CoffeeShopError::AWSSdkError(format!("{:?}", err))
+                    CoffeeShopError::from_aws_dynamodb_error(err.into(), config)
                 }
             )?
         )
         .send().await
         .map_err(
-            // TODO - Implement a more specific error type for DynamoDB errors.
-            |sdk_err| CoffeeShopError::AWSSdkError(format!("{:?}", sdk_err))
+            |sdk_err| CoffeeShopError::from_aws_dynamodb_error(sdk_err.into_service_error().into(), config)
         )?;
 
     let consumed_capacity = response
@@ -218,7 +216,6 @@ where
     O: DeserializeOwned + Send + Sync + 'static,
     C: HasDynamoDBConfiguration,
 {
-    // TODO Refactor this to use `tokio::task::spawn_blocking` to avoid blocking the runtime.
     let items = get_items_by_tickets(config, tickets, None).await?;
 
     let dynamodb_partition_key = config.dynamodb_partition_key().to_owned();
