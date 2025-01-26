@@ -49,13 +49,14 @@ where
 }
 
 /// Retrieve a ticket from the AWS SQS queue.
-pub async fn retrieve_ticket<Q, I>(
-    config: &dyn HasSQSConfiguration,
+pub async fn retrieve_ticket<Q, I, C>(
+    config: &C,
     timeout: Option<tokio::time::Duration>,
-) -> Result<StagedReceipt<Q, I>, CoffeeShopError>
+) -> Result<StagedReceipt<'_, Q, I, C>, CoffeeShopError>
 where
     Q: message::QueryType + 'static,
     I: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+    C: HasSQSConfiguration,
 {
     // Call the `receive` method on the `StagedReceipt` struct.
     StagedReceipt::receive(config, timeout).await

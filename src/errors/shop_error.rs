@@ -122,7 +122,7 @@ pub enum CoffeeShopError {
     ///
     /// [`dynamodb::Error`] is non-exhaustive, so we need to handle the unknown errors.
     #[error("An error occurred while processing the request: {0}")]
-    AWSDynamoDBResponseError(#[from] dynamodb::Error),
+    AWSDynamoDBResponseError(#[from] Box<dynamodb::Error>),
 
     #[error("The specified AWS DynamoDB Table does not exists. Please verify the table: {0}")]
     AWSDynamoDBTableDoesNotExist(String),
@@ -155,7 +155,7 @@ pub enum CoffeeShopError {
     AWSSQSQueueBeingPurged,
 
     #[error("An error was reported by AWS SQS: {0}")]
-    AWSSQSResponseError(#[from] sqs::Error),
+    AWSSQSResponseError(#[from] Box<sqs::Error>),
 
     #[error("Message from AWS SQS had already been completed, and cannot be {0} again.")]
     AWSSQSStagedReceiptAlreadyCompleted(&'static str),
@@ -241,7 +241,7 @@ impl CoffeeShopError {
             sqs::Error::QueueDoesNotExist(sqs::QueueDoesNotExist { .. }) => {
                 Self::AWSQueueDoesNotExist(config.sqs_queue_url().to_owned())
             }
-            err => Self::AWSSQSResponseError(err),
+            err => Self::AWSSQSResponseError(Box::new(err)),
         }
     }
 
@@ -328,7 +328,7 @@ impl CoffeeShopError {
                 ),
             },
             // Fallback to the generic error.
-            err => Self::AWSDynamoDBResponseError(err),
+            err => Self::AWSDynamoDBResponseError(Box::new(err)),
         }
     }
 

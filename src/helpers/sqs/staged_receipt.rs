@@ -27,10 +27,11 @@ const MAX_COMPLETION_RETRIES: usize = 3;
 /// A received message from SQS that is staged for processing, before
 /// a reply to SQS had been sent on deleting the message or its visibility
 /// changed back to visible.
-pub struct StagedReceipt<Q, I>
+pub struct StagedReceipt<'c, Q, I, C>
 where
     Q: message::QueryType,
     I: serde::de::DeserializeOwned + serde::Serialize,
+    C: HasSQSConfiguration,
 {
     client: sqs::Client,
     pub ticket: Ticket,
@@ -40,12 +41,15 @@ where
 
     /// Completed
     completed: OnceLock<bool>,
+
+    config: &'c C,
 }
 
-impl<Q, I> StagedReceipt<Q, I>
+impl<'c, Q, I, C> StagedReceipt<'c, Q, I, C>
 where
     Q: message::QueryType + 'static,
     I: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+    C: HasSQSConfiguration,
 {
     /// Create a new [`StagedReceipt`] instance.
     ///
@@ -59,7 +63,7 @@ where
     /// **Do not race this method against a timeout; use the built-in `timeout`
     /// parameter instead.**
     pub async fn receive(
-        config: &dyn HasSQSConfiguration,
+        config: &'c C,
         timeout: Option<tokio::time::Duration>,
     ) -> Result<Self, CoffeeShopError> {
         let client = sqs::Client::new(config.aws_config());
@@ -130,6 +134,7 @@ where
                 receipt_handle,
                 queue_url: config.sqs_queue_url().to_owned(),
                 completed: OnceLock::new(),
+                config,
             })
         } else {
             Err(CoffeeShopError::AWSSQSQueueEmpty(timeout))
@@ -175,10 +180,12 @@ where
                     .receipt_handle(&self.receipt_handle)
                     .send()
                     .await
-                    .map_err(
-                        // TODO Change the error type.
-                        |err| CoffeeShopError::AWSSdkError(format!("{:?}", err)),
-                    )
+                    .map_err(|sdk_err| {
+                        CoffeeShopError::from_aws_sqs_error(
+                            sdk_err.into_service_error().into(),
+                            self.config,
+                        )
+                    })
                     .map(|_output| ())
             } else {
                 crate::warn!(
@@ -195,10 +202,12 @@ where
                     .visibility_timeout(0)
                     .send()
                     .await
-                    .map_err(
-                        // TODO Change the error type.
-                        |err| CoffeeShopError::AWSSdkError(format!("{:?}", err)),
-                    )
+                    .map_err(|sdk_err| {
+                        CoffeeShopError::from_aws_sqs_error(
+                            sdk_err.into_service_error().into(),
+                            self.config,
+                        )
+                    })
                     .map(|_output| ())
             }
         };
@@ -217,10 +226,11 @@ where
     }
 }
 
-impl<Q, I> Drop for StagedReceipt<Q, I>
+impl<Q, I, C> Drop for StagedReceipt<'_, Q, I, C>
 where
     Q: message::QueryType,
     I: serde::de::DeserializeOwned + serde::Serialize,
+    C: HasSQSConfiguration,
 {
     /// Drop the [`StagedReceipt`] instance.
     ///

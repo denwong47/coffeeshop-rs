@@ -10,7 +10,11 @@ use super::{
     Machine, Shop,
 };
 
-use crate::{helpers, models::message::MulticastMessageStatus, CoffeeShopError};
+use crate::{
+    helpers::{self, sqs::HasSQSConfiguration},
+    models::message::MulticastMessageStatus,
+    CoffeeShopError,
+};
 
 const LOG_TARGET: &str = "coffeeshop::models::barista";
 
@@ -178,10 +182,13 @@ where
     }
 
     /// Process a ticket from the SQS queue.
-    pub async fn process_ticket(
+    pub async fn process_ticket<C>(
         &self,
-        receipt: &helpers::sqs::StagedReceipt<Q, I>,
-    ) -> ProcessResult<O> {
+        receipt: &helpers::sqs::StagedReceipt<'_, Q, I, C>,
+    ) -> ProcessResult<O>
+    where
+        C: HasSQSConfiguration,
+    {
         // Increment the process count.
         self.process_count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -202,7 +209,7 @@ where
         let shop = self.shop();
 
         // Fetch the next ticket from the SQS queue.
-        let receipt: helpers::sqs::StagedReceipt<Q, I> =
+        let receipt: helpers::sqs::StagedReceipt<'_, Q, I, _> =
             helpers::sqs::retrieve_ticket(&shop, timeout).await?;
 
         let result = async {
