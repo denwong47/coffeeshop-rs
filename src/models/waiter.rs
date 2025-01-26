@@ -3,12 +3,9 @@
 //! For synchronous requests, the waiter will also asynchronously await a [`Notify`](tokio::sync::Notify)
 //! event from the multicast channel and report back to the client when the request had been processed.
 
-use std::{
-    ops::Deref,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, Weak,
-    },
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Weak,
 };
 
 use axum::extract::{
@@ -148,7 +145,7 @@ where
 
         self.request_count.fetch_add(1, Ordering::Relaxed);
 
-        let ticket = helpers::sqs::put_ticket(shop.deref(), input).await?;
+        let ticket = helpers::sqs::put_ticket(&shop, input).await?;
 
         Ok((ticket.clone(), shop.spawn_order(ticket).await))
     }
@@ -181,7 +178,7 @@ where
         // Wait for the order to complete.
         order
             .value()
-            .wait_and_fetch_when_complete::<O, _>(shop.deref())
+            .wait_and_fetch_when_complete::<O, _>(&shop)
             .await
             .map(|result| {
                 result.map(|output| {

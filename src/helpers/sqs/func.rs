@@ -32,7 +32,7 @@ where
             |err| crate::error!(target: LOG_TARGET, "Failed to send message: {err}", err = err),
         )
         .map_err(|sdk_err| {
-            CoffeeShopError::from_aws_sqs_send_message_error(sdk_err.into_service_error(), config)
+            CoffeeShopError::from_aws_sqs_error(sdk_err.into_service_error().into(), config)
         })?;
 
     crate::info!(
@@ -65,15 +65,29 @@ where
 pub async fn purge_tickets(config: &dyn HasSQSConfiguration) -> Result<(), CoffeeShopError> {
     let client = sqs::Client::new(config.aws_config());
 
-    client
-        .purge_queue()
-        .queue_url(config.sqs_queue_url())
-        .send()
-        .await
-        // TODO Make a more unique error type for this.
-        .map_err(|err| CoffeeShopError::AWSSdkError(format!("{:?}", err)))?;
-
-    Ok(())
+    loop {
+        match client
+            .purge_queue()
+            .queue_url(config.sqs_queue_url())
+            .send()
+            .await
+            .map_err(|sdk_err| {
+                CoffeeShopError::from_aws_sqs_error(sdk_err.into_service_error().into(), config)
+            }) {
+            Ok(_) => {
+                crate::info!(target: LOG_TARGET, "Purged queue.");
+                break Ok(());
+            }
+            // If the queue is being purged, wait a minute before retrying.
+            Err(CoffeeShopError::AWSSQSQueueBeingPurged) => {
+                crate::info!(target: LOG_TARGET, "Queue is being purged; waiting a minute before retrying.");
+                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                crate::info!(target: LOG_TARGET, "Retrying to purge queue.");
+            }
+            // For any other error, break out of the loop and return the error.
+            Err(err) => break Err(err),
+        }
+    }
 }
 
 /// Get ticket count.
@@ -86,7 +100,9 @@ pub async fn get_ticket_count(config: &dyn HasSQSConfiguration) -> Result<usize,
         .attribute_names(sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
         .send()
         .await
-        .map_err(|err| CoffeeShopError::AWSSdkError(format!("{:?}", err)))?;
+        .map_err(|sdk_err| {
+            CoffeeShopError::from_aws_sqs_error(sdk_err.into_service_error().into(), config)
+        })?;
 
     response
         .attributes

@@ -1,4 +1,5 @@
 use crate::helpers::aws::HasAWSSdkConfig;
+use std::sync::Arc;
 
 use crate::helpers::aws;
 
@@ -28,6 +29,28 @@ pub trait HasDynamoDBConfiguration: HasAWSSdkConfig {
             ttl: self.dynamodb_ttl(),
             aws_config: self.aws_config().clone(),
         }
+    }
+}
+
+/// Passthrough the [`HasDynamoDBConfiguration`] trait for [`Arc`] pointers.
+impl<T> HasDynamoDBConfiguration for Arc<T>
+where
+    T: HasDynamoDBConfiguration,
+{
+    fn dynamodb_table(&self) -> &str {
+        (**self).dynamodb_table()
+    }
+
+    fn dynamodb_partition_key(&self) -> &str {
+        (**self).dynamodb_partition_key()
+    }
+
+    fn dynamodb_ttl(&self) -> tokio::time::Duration {
+        (**self).dynamodb_ttl()
+    }
+
+    fn dynamodb_configuration(&self) -> DynamoDBConfiguration {
+        (**self).dynamodb_configuration()
     }
 }
 
