@@ -1,10 +1,7 @@
 use serde::{de::DeserializeOwned, Serialize};
-use std::{
-    ops::Deref,
-    sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc, Weak,
-    },
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc, Weak,
 };
 use tokio::sync::Notify;
 
@@ -206,7 +203,7 @@ where
 
         // Fetch the next ticket from the SQS queue.
         let receipt: helpers::sqs::StagedReceipt<Q, I> =
-            helpers::sqs::retrieve_ticket(shop.deref(), timeout).await?;
+            helpers::sqs::retrieve_ticket(&shop, timeout).await?;
 
         let result = async {
             // Process the ticket.
@@ -221,8 +218,7 @@ where
             };
 
             // Send the result to DynamoDB.
-            helpers::dynamodb::put_process_result(shop.deref(), &receipt.ticket, process_result)
-                .await?;
+            helpers::dynamodb::put_process_result(&shop, &receipt.ticket, process_result).await?;
 
             crate::info!(
                 target: LOG_TARGET,

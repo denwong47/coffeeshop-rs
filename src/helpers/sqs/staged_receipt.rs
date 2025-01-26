@@ -79,10 +79,7 @@ where
             .send()
             .await
             .map_err(|sdk_err| {
-                CoffeeShopError::from_aws_sqs_receive_message_error(
-                    sdk_err.into_service_error(),
-                    config,
-                )
+                CoffeeShopError::from_aws_sqs_error(sdk_err.into_service_error().into(), config)
             })?;
 
         // Get one message out of the list of messages.

@@ -1,4 +1,5 @@
 use crate::helpers::aws::{self, HasAWSSdkConfig};
+use std::sync::Arc;
 
 #[cfg(doc)]
 use crate::models::Shop;
@@ -37,5 +38,23 @@ impl HasAWSSdkConfig for SQSConfiguration {
 impl HasSQSConfiguration for SQSConfiguration {
     fn sqs_queue_url(&self) -> &str {
         &self.queue_url
+    }
+}
+
+impl<T> HasAWSSdkConfig for Arc<T>
+where
+    T: HasAWSSdkConfig,
+{
+    fn aws_config(&self) -> &aws::SdkConfig {
+        (**self).aws_config()
+    }
+}
+
+impl<T> HasSQSConfiguration for Arc<T>
+where
+    T: HasSQSConfiguration,
+{
+    fn sqs_queue_url(&self) -> &str {
+        (**self).sqs_queue_url()
     }
 }

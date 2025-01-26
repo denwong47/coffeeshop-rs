@@ -17,10 +17,8 @@ use super::{CoffeeMachineError, ErrorSchema};
 mod sqs {
     pub const DEFAULT_ERROR_MESSAGE: &str = "(No details provided)";
 
-    pub use aws_sdk_sqs::operation::{
-        receive_message::ReceiveMessageError, send_message::SendMessageError,
-    };
     pub use aws_sdk_sqs::types::error::*;
+    pub use aws_sdk_sqs::Error;
 }
 /// For the error handling of DynamoDB SDK.
 mod dynamodb {
@@ -153,11 +151,11 @@ pub enum CoffeeShopError {
     #[error("AWS SQS Queue is empty after waiting for {0:?}.")]
     AWSSQSQueueEmpty(tokio::time::Duration),
 
-    #[error("Unexpected AWS SQS Send Message Error: {0:?}")]
-    AWSSQSSendMessageError(#[from] Box<sqs::SendMessageError>),
+    #[error("AWS SQS Queue is being purged; please wait a minute before trying again. This error should not be encountered in production.")]
+    AWSSQSQueueBeingPurged,
 
-    #[error("Unexpected AWS SQS Receive Message Error: {0:?}")]
-    AWSSQSReceiveMessageError(#[from] Box<sqs::ReceiveMessageError>),
+    #[error("An error was reported by AWS SQS: {0}")]
+    AWSSQSResponseError(#[from] sqs::Error),
 
     #[error("Message from AWS SQS had already been completed, and cannot be {0} again.")]
     AWSSQSStagedReceiptAlreadyCompleted(&'static str),
@@ -213,61 +211,37 @@ impl CoffeeShopError {
         Self::HTTPServerError(error.kind(), error)
     }
 
-    /// Convenient method to map AWS SQS SDK errors from receiving messages to
-    /// [`CoffeeShopError`].
-    pub fn from_aws_sqs_receive_message_error(
-        error: sqs::ReceiveMessageError,
-        config: &dyn HasSQSConfiguration,
-    ) -> Self {
+    /// Convenient method to map AWS SQS [`sqs::Error`] to [`CoffeeShopError`].
+    pub fn from_aws_sqs_error(error: sqs::Error, config: &dyn HasSQSConfiguration) -> Self {
         match error {
-            sqs::ReceiveMessageError::QueueDoesNotExist(sqs::QueueDoesNotExist { .. }) => {
-                Self::AWSQueueDoesNotExist(config.sqs_queue_url().to_owned())
-            }
-            sqs::ReceiveMessageError::InvalidAddress(sqs::InvalidAddress {
-                message: msg_opt,
-                ..
-            }) => Self::InvalidConfiguration {
-                field: "sqs_queue",
-                message: msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
-            },
-            sqs::ReceiveMessageError::KmsAccessDenied(sqs::KmsAccessDenied {
-                message: msg_opt,
-                ..
-            }) => Self::AWSCredentialsError(
-                msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
-            ),
-            err => Self::AWSSQSReceiveMessageError(Box::new(err)),
-        }
-    }
-
-    /// Convenient method to map AWS SQS SDK errors from sending messages to [`CoffeeShopError`].
-    pub fn from_aws_sqs_send_message_error(
-        error: sqs::SendMessageError,
-        config: &dyn HasSQSConfiguration,
-    ) -> Self {
-        match error {
-            sqs::SendMessageError::QueueDoesNotExist(sqs::QueueDoesNotExist { .. }) => {
-                Self::AWSQueueDoesNotExist(config.sqs_queue_url().to_owned())
-            }
-            sqs::SendMessageError::InvalidMessageContents(sqs::InvalidMessageContents {
-                message: msg_opt,
-                ..
-            }) => Self::AWSSQSInvalidMessage(
-                msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
-            ),
-            sqs::SendMessageError::InvalidAddress(sqs::InvalidAddress {
+            sqs::Error::InvalidAddress(sqs::InvalidAddress {
                 message: msg_opt, ..
             }) => Self::InvalidConfiguration {
                 field: "sqs_queue",
                 message: msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
             },
-            sqs::SendMessageError::KmsAccessDenied(sqs::KmsAccessDenied {
+            sqs::Error::InvalidMessageContents(sqs::InvalidMessageContents {
                 message: msg_opt,
                 ..
+            }) => Self::AWSSQSInvalidMessage(
+                msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
+            ),
+            sqs::Error::KmsAccessDenied(sqs::KmsAccessDenied {
+                message: msg_opt, ..
             }) => Self::AWSCredentialsError(
                 msg_opt.unwrap_or_else(|| sqs::DEFAULT_ERROR_MESSAGE.to_string()),
             ),
-            err => Self::AWSSQSSendMessageError(Box::new(err)),
+            sqs::Error::PurgeQueueInProgress(_) => {
+                crate::error!(
+                    "The AWS SQS queue {} had been purged in the last 60 seconds, and cannot be purged again right now. If you are running a test, please hold off for a minute.",
+                    config.sqs_queue_url()
+                );
+                Self::AWSSQSQueueBeingPurged
+            }
+            sqs::Error::QueueDoesNotExist(sqs::QueueDoesNotExist { .. }) => {
+                Self::AWSQueueDoesNotExist(config.sqs_queue_url().to_owned())
+            }
+            err => Self::AWSSQSResponseError(err),
         }
     }
 

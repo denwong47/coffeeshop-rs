@@ -1,6 +1,15 @@
-// TODO This module needs more logging statements, and
-// periodic_purge_stale_orders needs to be implemented.
-
+//! Implementation of the [`CollectionPoint`] trait for the [`Shop`] struct.
+//!
+//! # Note
+//!
+//! This is a somewhat questionable design decision, as the [`Shop`] struct is already
+//! quite large and complex, so arguably [`CollectionPoint`] could have been a
+//! separate struct that contains a reference to a [`Shop`] instance.
+//!
+//! Due to lifetime issues, there are also some methods that could not be implemented
+//! as part of the [`CollectionPoint`] trait, so they are implemented directly on the
+//! [`Shop`] struct such as [`Shop::check_for_fulfilled_orders`] and
+//! [`Shop::periodically_check_for_fulfilled_orders`].
 use crate::{
     helpers::dynamodb::{self, HasDynamoDBConfiguration},
     models::{message, Machine, Orders, Shop, Ticket},
