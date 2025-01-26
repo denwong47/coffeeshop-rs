@@ -53,7 +53,7 @@ mod full_workflow {
 
         crate::debug!(target: LOG_TARGET, "Retrieving ticket from the empty queue of {}...", config.sqs_queue_url());
         let has_timedout = tokio::select! {
-            result = retrieve_ticket::<TestQuery, TestPayload>(&config, Some(tokio::time::Duration::from_secs(1))) => {
+            result = retrieve_ticket::<TestQuery, TestPayload, _>(&config, Some(tokio::time::Duration::from_secs(1))) => {
                 match result {
                     Ok(receipt) => {
                         crate::warn!(target: LOG_TARGET, "Received unexpected ticket! Are there other concurrent tests interfering with this one?");
@@ -117,7 +117,7 @@ mod full_workflow {
         crate::info!(target: LOG_TARGET, "Got ticket #{}.", &ticket);
         crate::debug!(target: LOG_TARGET, "Retrieving ticket from {}...", queue_url);
 
-        let receipt: StagedReceipt<TestQuery, TestPayload> = retrieve_ticket(&config, TIMEOUT)
+        let receipt: StagedReceipt<TestQuery, TestPayload, _> = retrieve_ticket(&config, TIMEOUT)
             .await
             .expect("Failed to retrieve the ticket from the queue.");
 
@@ -133,7 +133,7 @@ mod full_workflow {
 
         crate::info!(target: LOG_TARGET, "Deleted ticket #{}.", &ticket);
 
-        match retrieve_ticket::<TestQuery, TestPayload>(
+        match retrieve_ticket::<TestQuery, TestPayload, _>(
             &config,
             Some(tokio::time::Duration::from_secs(1)),
         )
@@ -152,7 +152,7 @@ mod full_workflow {
             Err(err) => {
                 panic!("Unexpected error while waiting for empty queue: {:?}", err);
             }
-        }
+        };
     }
 
     #[serial_test::serial(uses_sqs)]
@@ -188,7 +188,7 @@ mod full_workflow {
         crate::info!(target: LOG_TARGET, "Got ticket #{}.", &ticket);
         crate::debug!(target: LOG_TARGET, "Retrieving ticket from {}...", queue_url);
 
-        let receipt: StagedReceipt<TestQuery, TestPayload> = retrieve_ticket(&config, TIMEOUT)
+        let receipt: StagedReceipt<TestQuery, TestPayload, _> = retrieve_ticket(&config, TIMEOUT)
             .await
             .expect("Failed to retrieve the ticket from the queue.");
 
@@ -201,7 +201,7 @@ mod full_workflow {
 
         crate::info!(target: LOG_TARGET, "Aborted ticket #{}. Trying again to retrieve it...", &ticket);
 
-        match retrieve_ticket::<TestQuery, TestPayload>(
+        match retrieve_ticket::<TestQuery, TestPayload, _>(
             &config,
             Some(tokio::time::Duration::from_secs(1)),
         )
@@ -224,6 +224,6 @@ mod full_workflow {
             Err(err) => {
                 panic!("Unexpected error while waiting for empty queue: {:?}", err);
             }
-        }
+        };
     }
 }
