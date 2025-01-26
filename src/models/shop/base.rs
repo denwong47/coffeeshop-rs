@@ -4,6 +4,9 @@ use std::{marker::PhantomData, sync::Arc};
 use super::super::{message, Announcer, Barista, Machine, Orders, Waiter};
 use crate::{cli::Config, helpers, CoffeeShopError};
 
+#[cfg(doc)]
+use tokio::sync::Notify;
+
 /// The logger target for the shop.
 #[cfg(feature = "debug")]
 #[allow(dead_code)]

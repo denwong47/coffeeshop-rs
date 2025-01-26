@@ -18,12 +18,12 @@ pub type Orders = helpers::order_chain::Chain<Ticket, Order>;
 /// A segment of the [`Orders`] chain.
 pub type OrderSegment = helpers::order_chain::ChainSegment<Ticket, Order>;
 
-/// A [`Delivery`] is a structure that contains:
+/// A [`Order`] is a structure that contains:
 /// - [`OnceLock`](std::sync::OnceLock) which will be populated with the processed ticket
 ///   once it is ready, and
 /// - [`Notify`](tokio::sync::Notify) instance to notify the [`Waiter`] that the ticket is ready.
 ///
-/// The collection point will [push the result](Delivery::complete) into the [`Delivery::result`]
+/// The collection point will [push the result](Order::complete) into the [`Order::result`]
 /// and notify all the interested parties when the ticket is ready.
 #[derive(Debug)]
 pub struct Order {
@@ -37,7 +37,7 @@ pub struct Order {
 }
 
 impl Order {
-    /// Create a new [`Delivery`] instance.
+    /// Create a new [`Order`] instance.
     pub fn new(ticket: Ticket) -> Self {
         Self {
             ticket,

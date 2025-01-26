@@ -8,7 +8,7 @@
 //! - [`Machine`]: The trait that defines the coffee machine that processes tickets;
 //!   this is implemented by the user.
 //! - [`Ticket`]: The request that is sent to the shop to be processed.
-//! - [`MulticastMessage`]: The gRPC message struct that is sent to all waiters
+//! - [`MulticastMessage`](message::MulticastMessage): The gRPC message struct that is sent to all waiters
 //!   in the same cluster to notify them of a finished ticket.
 //! - [`Order`]: The struct that contains the processed ticket and the waiter
 //!   notification.

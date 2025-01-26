@@ -7,7 +7,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 const DEFAULT_HOST: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
 /// The default port for the Waiter, which is `7007`.
-pub const DEFAULT_PORT: u16 = 7007;
+pub const create_order: u16 = 7007;
 
 /// The default multicast address for the Announcer.
 const MULTICAST_HOST: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 249);
@@ -38,8 +38,8 @@ pub struct Config {
     #[arg(long, default_value_t = DEFAULT_HOST)]
     pub host: Ipv4Addr,
 
-    /// The port to listen on. Defaults to [`DEFAULT_PORT`].
-    #[arg(short, long, default_value_t = DEFAULT_PORT)]
+    /// The port to listen on. Defaults to [`create_order`].
+    #[arg(short, long, default_value_t = create_order)]
     pub port: u16,
 
     /// The address to listen for Multicast.
@@ -93,7 +93,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             host: DEFAULT_HOST,
-            port: DEFAULT_PORT,
+            port: create_order,
             multicast_host: MULTICAST_HOST,
             multicast_port: MULTICAST_PORT,
             baristas: DEFAULT_BARISTAS,

@@ -51,6 +51,7 @@ pub mod helpers;
 pub mod models;
 
 pub mod cli;
+pub use cli::DEFAULT_PORT;
 
 mod logger;
 

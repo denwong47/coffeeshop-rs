@@ -3,7 +3,7 @@
 //!
 
 #[cfg(doc)]
-use crate::models::{Barista, Waiter};
+use crate::models::{Barista, Ticket, Waiter};
 
 mod config;
 pub use config::*;

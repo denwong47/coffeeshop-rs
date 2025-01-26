@@ -25,6 +25,9 @@ use super::{
 };
 use crate::{errors::handling::IntoCoffeeShopError, helpers, CoffeeShopError};
 
+#[cfg(doc)]
+use super::Order;
+
 const LOG_TARGET: &str = "coffeeshop::models::waiter";
 
 /// A [`Waiter`] instance that acts as an async REST API host.
@@ -43,7 +46,7 @@ where
     /// Only the [`request`](Self::request) and [`async_request`](Self::async_request) methods
     /// will increment this counter.
     ///
-    /// Internally, this is done by [`create_ticket`](Self::create_ticket).
+    /// Internally, this is done by [`create_order`](Self::create_order).
     pub request_count: Arc<AtomicUsize>,
     pub start_time: tokio::time::Instant,
 }
