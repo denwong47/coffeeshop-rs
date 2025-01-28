@@ -2,3 +2,4 @@
 use super::{MulticastMessage, MulticastMessageKind, MulticastMessageStatus};
 
 mod new;
+mod status;

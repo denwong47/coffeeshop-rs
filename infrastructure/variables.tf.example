@@ -1,0 +1,16 @@
+# Example Variables for the infrastructure.
+#
+# These variables need to be set in your `config.tfvars` file, and run
+# `terraform apply --var-file=config.tfvars` to apply the changes.
+
+variable "aws_region" {
+  type = string
+}
+
+variable "aws_profile" {
+  type = string
+}
+
+variable "coffeeshop_name" {
+  type = string
+}

@@ -7,7 +7,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 const DEFAULT_HOST: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
 /// The default port for the Waiter, which is `7007`.
-const DEFAULT_PORT: u16 = 7007;
+pub const DEFAULT_PORT: u16 = 7007;
 
 /// The default multicast address for the Announcer.
 const MULTICAST_HOST: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 249);
@@ -17,6 +17,14 @@ const MULTICAST_PORT: u16 = 65355;
 
 /// The number of Baristas to initiate.
 const DEFAULT_BARISTAS: u16 = 1;
+
+/// The default partition key (Primary Key) to use with the DynamoDB Table.
+///
+/// This must be set to match the table's partition key.
+const DEFAULT_DYNAMODB_PARTITION_KEY: &str = "identifier";
+
+/// The default TTL for the results in seconds.
+const DEFAULT_RESULT_TTL: f32 = 7200.;
 
 /// The maximum number of outstanding tickets before the waiter starts rejecting new
 /// requests with a `429 Too Many Requests` status code.
@@ -50,9 +58,28 @@ pub struct Config {
     #[arg(long, default_value_t = MAX_TICKETS)]
     pub max_tickets: usize,
 
+    /// The AWS DynamoDB table to use.
     #[arg(long, default_value = None)]
     pub dynamodb_table: Option<String>,
 
+    /// The partition key to use with the DynamoDB table.
+    #[arg(long, default_value = DEFAULT_DYNAMODB_PARTITION_KEY, alias = "dynamodb_primary_key")]
+    pub dynamodb_partition_key: String,
+
+    /// The number of seconds to keep the results in the DynamoDB table before it can
+    /// get purged by AWS.
+    #[arg(long, default_value_t = DEFAULT_RESULT_TTL)]
+    pub result_ttl: f32,
+
+    /// The maximum time a ticket can be processed before it is killed by the
+    /// HTTP server.
+    #[arg(long, default_value = None)]
+    pub max_execution_time: Option<f32>,
+
+    /// The AWS SQS queue URL to use.
+    ///
+    /// The AWS user must have the necessary permissions to send and receive messages
+    /// from this queue
     #[arg(long, default_value = None)]
     pub sqs_queue: Option<String>,
 }
@@ -72,6 +99,9 @@ impl Default for Config {
             baristas: DEFAULT_BARISTAS,
             max_tickets: MAX_TICKETS,
             dynamodb_table: None,
+            dynamodb_partition_key: DEFAULT_DYNAMODB_PARTITION_KEY.to_owned(),
+            result_ttl: DEFAULT_RESULT_TTL,
+            max_execution_time: None,
             sqs_queue: None,
         }
     }
@@ -116,7 +146,7 @@ impl Config {
         if count == 0 {
             Err(CoffeeShopError::InvalidConfiguration {
                 field: "baristas",
-                value: format!("must be positive number, found {count}."),
+                message: format!("must be positive number, found {count}."),
             })
         } else {
             // Refuse to allow `0` baristas.
@@ -130,12 +160,36 @@ impl Config {
         if count == 0 {
             Err(CoffeeShopError::InvalidConfiguration {
                 field: "max_tickets",
-                value: format!("must be positive number, found {count}."),
+                message: format!("must be positive number, found {count}."),
             })
         } else {
             self.max_tickets = count;
             Ok(self)
         }
+    }
+
+    /// Builder pattern - change the DynamoDB configuration.
+    pub fn with_dynamodb_table(mut self, table: &str) -> Self {
+        self.dynamodb_table = Some(table.to_owned());
+        self
+    }
+
+    /// Builder pattern - change the DynamoDB partition key.
+    pub fn with_dynamodb_partition_key(mut self, key: &str) -> Self {
+        self.dynamodb_partition_key = key.to_owned();
+        self
+    }
+
+    /// Builder pattern - change the result TTL.
+    pub fn with_result_ttl(mut self, ttl: f32) -> Self {
+        self.result_ttl = ttl;
+        self
+    }
+
+    /// Builder pattern - change the SQS queue URL.
+    pub fn with_sqs_queue(mut self, queue: String) -> Self {
+        self.sqs_queue = Some(queue);
+        self
     }
 }
 
@@ -148,6 +202,17 @@ impl Config {
     /// Get the host address in a packaged [`SocketAddr`] instance.
     pub fn host_addr(&self) -> SocketAddr {
         SocketAddr::new(IpAddr::V4(self.host), self.port)
+    }
+
+    /// Get the DynamoDB TTL in [`tokio::time::Duration`] format.
+    pub fn dynamodb_ttl(&self) -> tokio::time::Duration {
+        tokio::time::Duration::from_secs_f32(self.result_ttl)
+    }
+
+    /// Get the maximum execution time in [`tokio::time::Duration`] format.
+    pub fn max_execution_time(&self) -> Option<tokio::time::Duration> {
+        self.max_execution_time
+            .map(tokio::time::Duration::from_secs_f32)
     }
 }
 
@@ -214,7 +279,7 @@ mod tests {
         ) -> Err(
             CoffeeShopError::InvalidConfiguration{
                 field: "baristas",
-                value: "must be positive number, found 0.".to_owned()
+                message: "must be positive number, found 0.".to_owned()
             }
         )
     );
@@ -244,7 +309,7 @@ mod tests {
         ) -> Err(
             CoffeeShopError::InvalidConfiguration{
                 field: "max_tickets",
-                value: "must be positive number, found 0.".to_owned()
+                message: "must be positive number, found 0.".to_owned()
             }
         )
     );

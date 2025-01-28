@@ -8,7 +8,4 @@ pub struct StatusResponse {
 
     /// dequest count.
     pub request_count: usize,
-
-    /// Ticket count.
-    pub ticket_count: usize,
 }

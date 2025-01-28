@@ -9,7 +9,7 @@ use tokio::time::Duration;
 /// This allows the designer to customise the query parameters to their needs, while
 /// maintaining a standardised interface for the waiter to know certain information about
 /// the query.
-pub trait QueryType: serde::de::DeserializeOwned {
+pub trait QueryType: serde::de::DeserializeOwned + serde::Serialize + Send + Sync {
     /// Get the timeout for the query.
     ///
     /// This is used to determine how long the waiter should wait for a response
@@ -18,4 +18,11 @@ pub trait QueryType: serde::de::DeserializeOwned {
     /// While a [`None`] value is allowed, it is strongly recommended to enforce a
     /// [`Some<Duration>`] value to prevent the waiter from waiting indefinitely.
     fn get_timeout(&self) -> Option<tokio::time::Duration>;
+
+    /// A parameter to determine if the query is asynchronous.
+    ///
+    /// Defaults to a function that always returns `false`.
+    fn is_async(&self) -> bool {
+        false
+    }
 }

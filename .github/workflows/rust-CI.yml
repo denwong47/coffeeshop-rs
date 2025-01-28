@@ -22,6 +22,9 @@ env:
   AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
   AWS_PROFILE: github-ci-coffeeshop-rs
   AWS_SDK_LOAD_CONFIG: true
+  TEST_QUEUE_URL: ${{ vars.TEST_QUEUE_URL }}
+  TEST_DYNAMODB_TABLE: ${{ vars.TEST_DYNAMODB_TABLE }}
+  RUST_LOG: info
 
 jobs:
   build:
@@ -39,6 +42,8 @@ jobs:
       uses: taiki-e/install-action@v2
       with:
         tool: protoc@${{ env.PROTOC_VERSION }}
+    - name: Install liblzma
+      run: sudo apt-get update && sudo apt-get install liblzma-dev
     - uses: actions/cache@v4
       name: Cache Cargo build target
       with:
@@ -50,11 +55,11 @@ jobs:
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Build
-      run: cargo build --verbose
+      run: cargo build
     - name: Check formatting
       run: cargo fmt --all -- --check
     - name: Check clippy
       run: cargo clippy --all-targets --all-features --workspace -- -D warnings
     - name: Run tests
       # Run tests in release mode as compression tests are slow in debug mode
-      run: cargo test --release --verbose --workspace
+      run: cargo test --release --workspace --features=test_on_ci -- --nocapture

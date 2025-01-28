@@ -1,18 +1,19 @@
 use chrono::{DateTime, Utc};
 use gethostname::gethostname as get_hostname;
-use std::ffi::OsString;
 use tokio::time::Duration;
 
 /// Response Metadata, containing information about the host returning the response.
 ///
 /// Mostly for debugging purposes.
+#[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ResponseMetadata {
     /// The IP address of the server.
-    pub hostname: OsString,
+    pub hostname: String,
     /// The timestamp of the response.
     pub timestamp: DateTime<Utc>,
     /// Server uptime in seconds.
+    #[serde_as(as = "serde_with::DurationSecondsWithFrac<f64>")]
     pub uptime: Duration,
 }
 
@@ -20,7 +21,10 @@ impl ResponseMetadata {
     /// Create a new [`ResponseMetadata`] instance.
     pub fn new(start_time: &tokio::time::Instant) -> Self {
         Self {
-            hostname: get_hostname(),
+            hostname: get_hostname()
+                .to_str()
+                .unwrap_or("(unknown host)")
+                .to_owned(),
             timestamp: Utc::now(),
             uptime: start_time.elapsed(),
         }
