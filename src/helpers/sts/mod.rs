@@ -29,11 +29,22 @@ pub async fn get_aws_login(
 
     let client = aws_sdk_sts::Client::new(config);
 
+    // Check that the region is set, otherwise STS will return a very unhelpful
+    // "dispatch failure" message, which cannot be easily checked due to `Unhandled`
+    // enum variant.
+    if config.region().is_none() {
+        return Err(CoffeeShopError::AWSConfigIncomplete(
+            "AWS Region is not set.".to_string(),
+        ));
+    }
+
     client
         .get_caller_identity()
         .send()
         .await
-        .map_err(|err| CoffeeShopError::AWSSdkError(err.to_string()))
+        .map_err(|sdk_err| {
+            CoffeeShopError::from_aws_sts_error(sdk_err.into_service_error().into(), config)
+        })
 }
 
 /// Report the AWS caller identity.

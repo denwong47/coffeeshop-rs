@@ -1,10 +1,13 @@
 use axum::{body::Body, http, response::IntoResponse, BoxError, Json};
 use thiserror::Error;
 
-use std::net::{IpAddr, SocketAddr};
+use std::{
+    error::Error,
+    net::{IpAddr, SocketAddr},
+};
 
 use crate::{
-    helpers::{dynamodb::HasDynamoDBConfiguration, sqs::HasSQSConfiguration},
+    helpers::{aws::HasAWSSdkConfig, dynamodb::HasDynamoDBConfiguration, sqs::HasSQSConfiguration},
     models::Ticket,
 };
 
@@ -25,6 +28,14 @@ mod dynamodb {
     pub use aws_sdk_dynamodb::types::error::*;
     pub use aws_sdk_dynamodb::Error;
 }
+
+mod sts {
+    pub use aws_sdk_sts::Error;
+
+    // Trait for providing error metadata.
+    pub(super) use aws_sdk_sts::error::ProvideErrorMetadata;
+}
+use sts::ProvideErrorMetadata;
 
 #[derive(Error, Debug, strum::IntoStaticStr)]
 pub enum CoffeeShopError {
@@ -209,6 +220,31 @@ impl CoffeeShopError {
     pub fn from_server_io_error(error: std::io::Error) -> Self {
         // We don't need to care about unique temporary files here.
         Self::HTTPServerError(error.kind(), error)
+    }
+
+    /// Convenient method to map AWS STS [`sts::Error`] to [`CoffeeShopError`].
+    pub fn from_aws_sts_error(error: sts::Error, config: &dyn HasAWSSdkConfig) -> Self {
+        crate::error!(
+            "An error occurred during AWS STS validation using config\n:{sdk_config:#?}",
+            sdk_config = config.aws_config()
+        );
+        match error {
+            sts::Error::ExpiredTokenException(_) =>
+                Self::AWSCredentialsError("The AWS credentials have already expired at start up. If you are assuming an IAM role, please ensure that the role will last long enough for the lifetime of this instance.".to_owned())
+            ,
+            sts::Error::InvalidIdentityTokenException(_) =>
+                Self::AWSCredentialsError("The AWS credentials are invalid at start up. If you are assuming an IAM role, please ensure that the role will last long enough for the lifetime of this instance.".to_owned())
+            ,
+            error => if let Some(code) = error.code() {
+                // The AWS recommended way of handling `Unhandled` errors, but it does not seem
+                // to be capturing anything.
+                Self::AWSSdkError(format!("{code} during startup AWS credentials validation: {error:#?}"))
+            } else if let Some(source) = error.source() {
+                Self::AWSSdkError(format!("An error occurred during startup AWS credentials validation: {source:#?}"))
+            } else {
+                Self::AWSSdkError(format!("An unspecified error occurred during startup AWS credentials validation: {error:#?}"))
+            },
+        }
     }
 
     /// Convenient method to map AWS SQS [`sqs::Error`] to [`CoffeeShopError`].

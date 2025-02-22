@@ -23,3 +23,11 @@ pub trait HasAWSSdkConfig: Send + Sync {
     /// Get the AWS configuration.
     fn aws_config(&self) -> &SdkConfig;
 }
+
+/// By default, the [`SdkConfig`] struct implements the [`HasAWSSdkConfig`] trait
+/// by returning a reference to itself.
+impl HasAWSSdkConfig for SdkConfig {
+    fn aws_config(&self) -> &SdkConfig {
+        self
+    }
+}

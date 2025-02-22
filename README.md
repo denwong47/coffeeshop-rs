@@ -24,13 +24,6 @@ this implementation; however as the waiter has very virtually no blocking work t
 `tokio` alone should be able to handle a large number of requests even if they are not
 perfectly balanced across `Shop`.
 
-## `TODO` List
-
-Most issues had been resolved already; bu there are some improvements to be made:
-
-- [ ] Unique errors for `SdkError`
-- [ ] Find out why Mac is throwing a `Dispatch Error`.
-
 ### Why AWS?
 
 Part of the aim of this project is to provide a single image that can be deployed and scaled easily. It is
